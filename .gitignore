@@ -1,0 +1,3 @@
+# Hermes 技能目录不需要的
+__pycache__/
+*.pyc
