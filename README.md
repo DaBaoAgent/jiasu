@@ -1,3 +1,11 @@
+<!-- README-PROMO:START -->
+<p align="center">
+  <img src="assets/readme/hero.webp" alt="jiasu：Windows 电脑清理、系统加速与安全加固一体化技能" width="100%" />
+  <img src="assets/readme/workflow.webp" alt="jiasu 工作流：深度清理、缓存迁移、开机加速与安全加固" width="100%" />
+  <img src="assets/readme/beginner.webp" alt="jiasu 新手指南：先检查再优化，可逆、有边界、不误删" width="100%" />
+</p>
+<!-- README-PROMO:END -->
+
 # jiasu 加速 — Windows 电脑清理 / 加速 / 安全加固
 
 > Windows Cleaner, Speedup & Security Hardening — 磁盘深度清理 · 缓存迁移 · 开机加速 · 系统安全加固 · 一键式 AI 维护技能
