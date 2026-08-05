@@ -155,6 +155,29 @@ Register-ScheduledTask -TaskName "HermesAutoClean" -Action $action -Trigger $tri
 ```
 在 bash/MSYS 中执行需写成 `.ps1` 文件再 `powershell -File`（见陷阱 #1）。
 
+### Hermes 每日自动清理（cron，每天凌晨2点）
+
+在 Hermes 里创建 cron 任务，每天凌晨 2 点自动跑一遍**免 UAC 清理**，早晨出报告。标准配置：
+
+```
+schedule: "0 2 * * *"
+skills:   ["jiasu"]
+prompt:   执行 jiasu 技能每日自动清理（免 UAC 模式）：
+          1. 运行 scripts/deep_scan.py 广扫 + 记录清理前可用空间
+          2. Phase 1 安全清理（pip/npm/uv 缓存、TEMP、Windows Temp、Prefetch、CrashDumps/WER、回收站）
+          3. 剪映 User Data/Cache（绝不动 Projects）、浏览器 Cache/Code Cache/GPUCache、
+             微信/QQ Image/Video/File 缓存、系统残留目录（$WinREAgent 等）
+          4. Hermes/Codex 自有缓存（logs/screenshots、.codex/logs_2.sqlite 等）
+          5. 跳过所有需管理员操作（服务禁用、DISM、pagefile、注册表策略、计划任务创建）
+          6. 报告：逐项释放 GB + 总量 + 清理后剩余空间（中文简明）
+```
+
+**cron 无人值守注意**：
+- 只跑免 UAC 部分；管理员操作依赖一次性配置（`ConsentPromptBehaviorAdmin=0`，见"免 UAC 提权"），未配置时全部跳过
+- `deep_scan.py` 等脚本在技能目录 `scripts/` 下，cron prompt 里用绝对路径引用（如 `C:\Users\<user>\AppData\Local\hermes\skills\devops\jiasu\scripts\deep_scan.py`）
+- 被进程锁定的文件（Python 缓存、mcp-stderr.log）跳过即可，不要强删（见陷阱 #7）
+- Hermes cron 版与任务计划程序版（HermesAutoClean 每周日）可并存，互不冲突
+
 ### AppData Junction 迁移（WindowsClear 同款，C盘瘦身神器）
 
 大软件（微信/QQ/剪映/浏览器）的 AppData 数据动辄 10-30GB，**迁到 D 盘 + 原位建 Junction 链接**，软件无感（以为还在 C 盘），无需改环境变量。这是 WindowsClear 的核心方案，比 setx 更彻底。
