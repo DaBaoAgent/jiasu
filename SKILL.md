@@ -597,6 +597,7 @@ Start-Process cmd -Verb RunAs -ArgumentList '/c rd /s /q "C:\Program Files\XXXX"
 
 ## 参考脚本
 
+- `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：测量→安全删除→逐项报告释放 GB，覆盖包缓存/临时文件/剪映/浏览器/微信QQ/QQPCMgr/ima/Hermes/Codex 缓存，跳过被锁定文件与需管理员项
 - `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction
 - `scripts/find_installed_apps.py` — 查找软件安装位置（卸载前确认所有残留路径）
 - `scripts/audit_unused_software.ps1` — 软件使用审计（60天未用清单）
