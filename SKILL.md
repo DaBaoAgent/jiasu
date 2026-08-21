@@ -14,6 +14,27 @@ metadata:
 
 触发条件：用户说**清理电脑 / 加速电脑 / 清理C盘 / 释放空间 / 电脑卡 / 电脑安全 / 电脑加固**等，自动按本流程执行。整合磁盘深度清理（原 windows-system-maintenance）+ 腾讯电脑管家式开机加速四件套（启动项延迟/服务禁用/DNS优化/内存整理）+ 社区优质项目方法论（Sophia 定时清理、Win11Debloat 去预装、optimizerDuck 可逆优化、WindowsClear junction 迁移）。逆向依据见 `references/qqpcmgr-feature-map.md`，社区项目调研见 `references/windows-optimization-projects.md`。
 
+## 全面体检（health_check，2026-08-17 新增）
+
+触发词：**体检 / 检查电脑 / 电脑维护 / 全面检查**。区别于"清理"（只清垃圾），体检 = 只读状态扫描 + 异常项识别 + 维护动作。完整流程（本次实战验证的顺序）：
+
+### 标准流程（体检+维护一体）
+
+1. **先建还原点**（任何修改前）：提权脚本 `Enable-ComputerRestore C:` + `Checkpoint-Computer`（非提权 `Get-ComputerRestorePoint` 报拒绝访问属正常，别信"0 个"）
+2. **只读体检**：`python scripts/health_check.py`（技能目录下）——输出中文报告：磁盘/系统信息/杀软与防火墙/UAC/启动项/关键服务/系统还原/大缓存可清项，异常项 `[WARN]` 标出，汇总"正常 N / 注意 N / 异常 N"
+3. **广扫占用大户**：`python scripts/deep_scan.py`（先广扫再定点，常规清单会漏剪映这类大头）
+4. **Phase 1 安全清理**（免 UAC，见下）——注意清理脚本量前后空间的 bug：删除后量"已不存在的路径"会返回 0 导致误报 0.00 GB（2026-08-17 实测：实际全删了）。验证改用 `df -h` + `Test-Path` 目录存在性
+5. **管理员项**（提权）：Windows Temp/Prefetch/WU 缓存、系统残留目录（$WinREAgent/Intel/PerfLogs/NetworkService Temp/tw-*.tmp）、启动项清理、服务微调、**DISM /ResetBase**（5-20 分钟，放最后，窗口"不动"正常）
+6. **验证报告**：df 前后对比 + 还原点 + 启动项读回
+
+### health_check.py 要点
+
+- 纯只读、免 UAC，可被每日 cron 直接调用；GBK 输出用 `subprocess` 捕获 + `decode('gbk')`，脚本自身 `sys.stdout.reconfigure(encoding='utf-8')`
+- 服务期望值：DiagTrack=Disabled，edgeupdate/edgeupdatem/wpscloudsvr/SysMain=Manual，WinDefend=Automatic，wuauserv=Manual
+- 杀软判断：Defender `AMRunningMode=Passive` + 第三方杀软（如腾讯电脑管家）共存 = 正常（RealTimeProtectionEnabled=False 不必告警）；`RealTime=True` 或第三方缺失才算异常
+- 还原点非提权查不到数量：用 `Test-Path "C:\System Volume Information"` 判断系统还原是否启用（存在=已启用）
+- 可清项阈值 0.5G；codex-runtimes/sessions 列出来仅提示**不要删**（venv 基底/会话历史红线）
+
 ## 安全加固四件套（社区最佳实践，先做）
 
 **任何系统修改前先建还原点**（所有大工具的标准动作）：
@@ -94,7 +115,7 @@ Get-MpPreference | Select-Object AttackSurfaceReductionRules_Ids
 
 **验证**：`D:\@佳康顺\D盘脚本归档\jiasu_admin_result.txt` 存在且含 `[OK]` 行。注意 `Checkpoint-Computer` 可能因系统还原未启用而失败（WARN 可接受）。
 
-**陷阱**：Start-Process -Verb RunAs 会阻塞等待确认（前台会超时，用 background=true）；弹窗无人点会静默超时，事件日志无 4624/4672 记录（这是"未确认"特征，不是没弹）。
+**陷阱**：Start-Process -Verb RunAs 会阻塞等待确认（前台会超时，用 background=true）；弹窗无人点会静默超时，事件日志无 4624/4672 记录（这是"未确认"特征，不是没弹）。提权脚本的日志/输出路径写 `D:\@佳康顺\...` 曾失败（文件未生成），写 `C:\Users\<user>\` 稳定——提权脚本输出一律落 C 盘用户目录，成功后再由主进程复制归档。
 
 ## 磁盘清理全流程
 
@@ -510,7 +531,7 @@ powershell -File scripts/audit_unused_software.ps1 -JsonOut   # 输出 JSON 防�
 | ima.copilot | `ima.copilot/User Data/component_crx_cache` | 全部 | — |
 | npm | `npm/node_modules`（Roaming 下） | 全部（全局包，可重装） | — |
 | TRAE | `TRAE SOLO CN/ModularData/ai-agent/vm` | — | VM 镜像（核心功能） |
-| ms-playwright | `ms-playwright/<browser>-<version>` | 每种浏览器只保留版本号最大的，删其余 | 最新版本 |
+| ms-playwright | `ms-playwright/<browser>-<version>` | 每种浏览器只保留版本号最大的，删其余。**坑**：正则分组必须把 `chromium` 与 `chromium_headless_shell` 分开（前缀匹配 `^chromium[_-]` 会把两者混组，导致误删最新完整版 chromium 只留 headless_shell），按 `chromium`/`chromium_headless_shell`/`firefox`/`webkit`/`ffmpeg` 独立分组后再各自去旧 | 最新版本 |
 | QQ电脑管家 | `Tencent/QQPCMgr/radiumv3`（Roaming） | 全部（0.3-1GB 缓存） | `SysOpt.ini`/`sysdeepopt.ini`（加速策略） |
 | QQ电脑管家 | `Tencent/QQPCMgr/cef_cache_*`（Local） | 全部（CEF浏览器缓存） | — |
 | GreenCore7z | `GreenCore7z`（Roaming） | 全部（压缩软件缓存，0.3-0.5GB） | — |
@@ -601,6 +622,7 @@ Start-Process cmd -Verb RunAs -ArgumentList '/c rd /s /q "C:\Program Files\XXXX"
 
 ## 参考脚本
 
+- `scripts/health_check.py` — 只读全面体检（磁盘/安全/启动项/服务/还原/缓存），中文报告 + [WARN] 异常标出，cron 与手动复用
 - `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：测量→安全删除→逐项报告释放 GB，覆盖包缓存/临时文件/剪映/浏览器/微信QQ/QQPCMgr/ima/Hermes/Codex 缓存，跳过被锁定文件与需管理员项
 - `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction
 - `scripts/find_installed_apps.py` — 查找软件安装位置（卸载前确认所有残留路径）
