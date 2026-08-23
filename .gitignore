@@ -1,3 +1,5 @@
 # Hermes 技能目录不需要的
 __pycache__/
 *.pyc
+# 系统修改快照（reg export 含隐私，只留本机）
+revert/

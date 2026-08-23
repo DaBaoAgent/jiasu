@@ -69,6 +69,35 @@ Win11 25H2 起 AI 功能越来越多，脚本全移除：
 ### 7. BCUninstaller/Bulk-Crap-Uninstaller (20k★) — 批量卸载残留清理
 GUI 批量卸载器。卸载后深度扫描残留（注册表+文件+服务），检测隐藏/孤儿应用。
 
+### 8. ChrisTitusTech/winutil (60.7k★) — 一站式 Windows 工具（2026-08-24 新增调研）
+PowerShell 模块化脚本（MIT），最活跃的 Windows 优化项目。四个主 tab：
+- **Install**：winget 批量安装/卸载常用软件（curated 列表，Get Installed 反查已装）
+- **Tweaks**：预设配置文件（Microsoft/Standard/Hardcore 分级）、一键套用/还原
+- **Fixes**（最值得抄）：SFC /scannow、DISM RestoreHealth、Windows Update 修复（重置服务+缓存）、网络栈重置、打印机修复、.NET 修复
+- **Updates**：Windows 更新策略控制（暂停/阻止/恢复）
+- 社区驱动：PR 持续并入新 tweak（如 Edge 移除、Copilot 移除、地理位置服务禁用）
+
+### 9. hellzerg/optimizer (18.3k★) — Windows 优化器（2026-08-24 新增调研）
+.NET 单 exe（GPL-3.0），网络/系统/隐私全功能。最值得抄的：
+- **DNS 工具**：ping 测延迟、SHODAN IP 查询、预设 DNS 快速切换、flush DNS
+- **文件锁句柄识别终止**（Identify file lock handles）——清理"占用中"文件的标准答案
+- HOSTS 编辑、系统变量路径编辑、右键菜单自定义、Run 对话框自定义命令
+- **静默运行模板文件**（silent run using a template）——脚本化无人值守
+- Office 遥测禁用、HPET 禁用、UTC 时间、Defender 禁用（safe-mode 方案）
+- 停 Windows 自动更新（10/11）
+
+### 10. Chuyu-Team/Dism-Multi-language (20.2k★) — Dism++（2026-08-24 新增调研）
+国产老牌系统工具（2022 后停更但规则持续维护）。最值得抄的：
+- **空间回收 = 可扩展清理规则库**：清理规则是数据文件，用户可加规则（如新增"NuGet 包缓存"规则）；自动判断环境跳过不适用的
+- 系统备份/还原、启动项管理、Appx 管理、驱动/更新管理、镜像处理
+- 注意：非 Windows 原生 API 多，Chris Titus 建议安全环境慎用；对我们价值在规则库设计而非工具本身
+
+### 11. builtbybel/Bloatynosy (5.6k★) + Winpilot（2026-08-24 新增调研）
+Win11 去臃肿 GUI，MIT。核心：OOBE 后一键配置助手（Fresh11）、插件引擎、debloat 能力深度集成。思路：装机后"一键全部配置" vs 我们的一次性配置脚本（ConsentPromptBehaviorAdmin=0 + 还原点 + 清理任务），方向一致可互相印证。
+
+### 12. arsenetar/dupeguru (~4k★) + jdupes（2026-08-24 新增调研）
+重复文件查找（跨平台，Python）。三种模式：Files（SHA-256 内容哈希）、Picture（感知哈希+EXIF）、Music（AcoustID 指纹）。分层过滤（大小→哈希→内容）保证速度；删除默认进回收站+预览确认。jdupes 是 C 实现 CLI 版。思路已并入 `find_duplicates.py`（三级过滤哈希、默认只列、--move-to 回收区）。
+
 ## 提炼整合建议（已并入 jiasu）
 
 | 来源 | 并入 jiasu 的内容 |
@@ -79,6 +108,13 @@ GUI 批量卸载器。卸载后深度扫描残留（注册表+文件+服务）�
 | Win11Debloat | AppX bloatware 移除命令、AI 功能禁用（Copilot/Recall）|
 | simeononsecurity | 先建还原点、Defender 安全检查、compact /c 压缩系统盘 |
 | RemoveWindowsAI | Win11 AI 注册表禁用键清单（仅 25H2+）|
+| winutil (60.7k★) | 系统修复工具集（SFC/DISM RestoreHealth/WU 重置/网络重置 → system_repair.ps1）；winget 批量卸载（uninstall_by_audit.py）|
+| hellzerg/optimizer (18.3k★) | DNS 备份/预设/延迟测试/恢复（dns_tool.py）；锁文件句柄查询（find_locked_by.py，Restart Manager API）|
+| Dism++ (20.2k★) | 清理规则数据化（rules.json，deep_scan --rules 自动匹配，新增软件只改规则文件）|
+| Sophia | 用户文件夹 Known Folder 重定向（redirect_known_folders.ps1，-Undo 可逆）|
+| dupeGuru/jdupes | 重复文件扫描（find_duplicates.py，三级过滤哈希，默认只列不删）|
+
+**可逆性统一保障（2026-08-24）**：backup_revert.py 在每次修改前建快照（reg export 全部相关键 + 服务启动类型 + 生成 undo.ps1），一键回滚；revert/ 目录已 gitignore（含注册表隐私数据）。
 
 ## 代理/抓取技巧（GitHub 调研用）
 

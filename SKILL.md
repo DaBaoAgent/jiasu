@@ -12,7 +12,23 @@ metadata:
 
 # 电脑清理加速（jiasu）
 
-触发条件：用户说**清理电脑 / 加速电脑 / 清理C盘 / 释放空间 / 电脑卡 / 电脑安全 / 电脑加固**等，自动按本流程执行。整合磁盘深度清理（原 windows-system-maintenance）+ 腾讯电脑管家式开机加速四件套（启动项延迟/服务禁用/DNS优化/内存整理）+ 社区优质项目方法论（Sophia 定时清理、Win11Debloat 去预装、optimizerDuck 可逆优化、WindowsClear junction 迁移）。逆向依据见 `references/qqpcmgr-feature-map.md`，社区项目调研见 `references/windows-optimization-projects.md`。
+触发条件：用户说**清理电脑 / 加速电脑 / 清理C盘 / 释放空间 / 电脑卡 / 电脑安全 / 电脑加固**等，自动按本流程执行。整合磁盘深度清理（原 windows-system-maintenance）+ 腾讯电脑管家式开机加速四件套（启动项延迟/服务禁用/DNS优化/内存整理）+ 社区优质项目方法论（Sophia 定时清理、Win11Debloat 去预装、optimizerDuck 可逆优化、WindowsClear junction 迁移、winutil 修复工具集、hellzerg optimizer 网络/锁句柄工具、Dism++ 规则库、dupeGuru 重复文件）。逆向依据见 `references/qqpcmgr-feature-map.md`，社区项目调研见 `references/windows-optimization-projects.md`。
+
+## 可逆性保障（2026-08-24 新增，任何修改前先做）
+
+所有修改类操作（注册表/服务/启动项）执行前先建快照（optimizerDuck revert 机制同款）：
+
+```bash
+python scripts/backup_revert.py backup    # reg export 全部相关键 + 记录服务启动类型 + 生成 undo.ps1
+python scripts/backup_revert.py list      # 查看已有快照
+python scripts/backup_revert.py apply <时间戳>  # 一键回滚（弹 UAC，需管理员）
+```
+
+- 快照落 `revert/<时间戳>/`（**已在 .gitignore，含注册表隐私数据不进 git**）
+- 覆盖键：遥测/广告ID/活动历史/Copilot/Recall/MenuShowDelay/动画/透明度/快速启动/User Shell Folders/启动项 Run 键
+- 覆盖服务：wpscloudsvr/edgeupdate/DiagTrack/dmwappushservice/MapsBroker/WSearch/SysMain/Xbox 系列等
+- 无管理员也能 backup（只读导出）；apply 才需要提权
+- **红线**：backup 失败（如 reg export 全失败）时不要继续修改，先排查
 
 ## 全面体检（health_check，2026-08-17 新增）
 
@@ -122,6 +138,14 @@ Get-MpPreference | Select-Object AttackSurfaceReductionRules_Ids
 ### Phase 0 — 扫描
 
 **先广扫，再定点。** 固定目录清单会漏掉最大占用者（真实案例：剪映缓存 36GB 不在常规清单里，常规清单只凑出约 10GB）。第一步永远是扫 C 盘和 D 盘的 `USERPROFILE`、`AppData\Local`、`AppData\Roaming`、`Program Files*`、`ProgramData` 的顶层子目录（列出 ≥0.3GB 的），找出真正的占用大户，再决定清理策略。见 `scripts/deep_scan.py`（直接 `python scripts/deep_scan.py` 运行）。
+
+**加 `--rules` 扫已知可清项**（Dism++ 式规则库，2026-08-24 新增）：
+
+```bash
+python scripts/deep_scan.py --rules   # 广扫 + 自动匹配 rules.json 已知缓存项（占用/风险/说明）
+```
+
+规则库 `scripts/rules.json` 已覆盖：剪映全部缓存子目录/旧版本、美图/WPS 旧版本、微信小程序/WebView、腾讯会议动态资源、QQPCMgr、ima.copilot、ms-playwright 旧版、Codex、pip/uv/npm、系统残留目录、WU 缓存、CrashDumps/WER、Hermes 自有缓存等 40+ 条。**新增软件缓存规则只改 rules.json 不用改代码**（路径支持 `%LOCALAPPDATA%`/`%APPDATA%`/`%USERPROFILE%`/`%SystemRoot%`/`%TEMP%` 占位符，mode 支持 contents/file/keep_latest/cef_cache，risk 分 safe/moderate）。
 
 **别忘了 D 盘**：`D:\Program Files` 和 `D:\Program Files (x86)` 也可能有软件安装。夸克浏览器、美图、腾讯会议等常装到 D 盘，旧版本残留同样可清（Quark 双版本各占 1.3GB，只保留最新版）。
 
@@ -408,16 +432,18 @@ sc config mtxxservice start= manual
 ```
 需管理员（UAC）。先 `sc query wpscloudsvr` 确认服务存在。**红线**：不动杀毒、驱动、Windows 核心服务（wuauserv 除外，见 Phase 3）。
 
-### 4. DNS 优化（可选，需管理员）
+### 4. DNS 优化（dns_tool.py，hellzerg/optimizer 同款；切换需管理员）
 
-```powershell
-# 先看当前 DNS 和网卡名
-ipconfig /all
-# 阿里 223.5.5.5 主 + 腾讯 119.29.29.29 备
-netsh interface ip set dns name="以太网" static 223.5.5.5
-netsh interface ip add dns name="以太网" 119.29.29.29
+```bash
+python scripts/dns_tool.py backup                 # 先备份当前 DNS（落 revert/dns_backup_<ts>.json）
+python scripts/dns_tool.py test                   # 测当前 DNS 延迟（UDP 直查，比 ping 准）
+python scripts/dns_tool.py test --all             # 对比全部预设 DNS 延迟
+python scripts/dns_tool.py set aliyun             # 切到预设（aliyun/tencent/114/baidu/cloudflare/google/adguard）
+python scripts/dns_tool.py set 223.5.5.5 119.29.29.29   # 自定义主/备
+python scripts/dns_tool.py restore                # 一键恢复最近备份（含 DHCP 恢复）
 ```
-网卡名可能是中文（"以太网"/"WLAN"），用 `ipconfig` 输出确认。对普通上网感知提升有限，主要对 DNS 解析慢/污染场景有效。
+
+对普通上网感知提升有限，主要对 DNS 解析慢/污染场景有效。**切换前必 backup，不满意 restore**（之前版本是直接改死，改不回滚）。
 
 ### 5. 内存整理（可选，收益有限）
 
@@ -510,6 +536,15 @@ powershell -File scripts/audit_unused_software.ps1 -JsonOut   # 输出 JSON 防�
 **注意**：文件修改时间 ≠ 实际使用时间（自动更新会刷新 mtime）。Edge、VS Installer、FFmpeg 可能被误归类，需人工判断。
 常见可卸载：TIM、360压缩、悟空(Wukong)、VS Installer。无卸载程序的软件（如悟空）需手动清注册表+删文件夹（见下）。
 
+**接 winget 批量卸载**（winutil Install tab 同款，2026-08-24 新增，默认 dry-run）：
+```bash
+python scripts/uninstall_by_audit.py                 # 列出闲置>60天的软件
+python scripts/uninstall_by_audit.py --idle 90       # 自定义阈值
+python scripts/uninstall_by_audit.py --apply "TIM"   # 卸载（注册表 UninstallString 优先，GUI 卸载器会弹窗）
+python scripts/uninstall_by_audit.py --apply "XXX" --winget  # 强制走 winget --silent
+```
+无 UninstallString 且 winget 找不到的国产软件 → 手动删目录+清注册表（陷阱 #11）。
+
 ## 广扫后的钻查目标（按软件分类）
 
 | 软件 | 路径模式 | 可删（缓存） | 不可删（用户数据/核心） |
@@ -535,6 +570,64 @@ powershell -File scripts/audit_unused_software.ps1 -JsonOut   # 输出 JSON 防�
 | QQ电脑管家 | `Tencent/QQPCMgr/radiumv3`（Roaming） | 全部（0.3-1GB 缓存） | `SysOpt.ini`/`sysdeepopt.ini`（加速策略） |
 | QQ电脑管家 | `Tencent/QQPCMgr/cef_cache_*`（Local） | 全部（CEF浏览器缓存） | — |
 | GreenCore7z | `GreenCore7z`（Roaming） | 全部（压缩软件缓存，0.3-0.5GB） | — |
+
+## 系统修复（winutil Fixes 同款，2026-08-24 新增）
+
+"电脑卡"不一定是垃圾多，也可能是系统文件损坏。修复场景用 `scripts/system_repair.ps1`（需管理员）：
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/system_repair.ps1 -Steps check   # 只诊断
+powershell -ExecutionPolicy Bypass -File scripts/system_repair.ps1 -Steps sfc,dism  # 默认：SFC+DISM
+powershell -ExecutionPolicy Bypass -File scripts/system_repair.ps1 -Steps all     # 全部（含WU/网络重置）
+```
+
+- `sfc /scannow`（5-15分钟，窗口不动正常）+ `DISM /online /Cleanup-Image /RestoreHealth`（10-30分钟，可能联网拉修复源）
+- `wu` 步骤 = Windows Update 服务重置（更新卡死/失败时）：停 wuauserv/bits/cryptsvc → SoftwareDistribution/Catroot2 改名 .old → 重启服务；确认更新正常后再删 .old
+- `net` 步骤 = winsock/ip 重置（需重启）
+- 日志落 `C:\Users\<user>\system_repair.log`
+- 提权方式：`Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File scripts/system_repair.ps1'`（免 UAC 已配置时静默）
+
+## 锁文件句柄查询（hellzerg/optimizer 同款，2026-08-24 新增）
+
+清理时遇到"文件被占用删不掉"（safe_rmtree 报 skipped），先查谁占着再决定关闭或跳过：
+
+```bash
+python scripts/find_locked_by.py "C:/Users/<user>/AppData/Local/Temp"
+python scripts/find_locked_by.py "path1" "path2" "path3"     # 可多路径
+```
+
+- 用 Windows Restart Manager API（rstrtmgr.dll），与应用自报锁不同——枚举真正持有句柄的进程，无需管理员
+- 输出：PID + 进程名 + 是否可安全重启；处置 `taskkill /PID <pid> /F` 后重删
+- **坑（已踩）**：RmStartSession 的 session key 缓冲必须 33 个 wchar，给 10 个会缓冲区溢出段错误（exit=139）
+
+## 重复文件扫描（dupeGuru/jdupes 思路，2026-08-24 新增）
+
+视频素材库/下载目录/照片库跨目录复制常留下重复大文件，缓存清理扫不到。默认只列不删：
+
+```bash
+python scripts/find_duplicates.py "D:/8.9/工作文件夹视频"              # 扫目录（默认 ≥10MB）
+python scripts/find_duplicates.py "dir1" "dir2" --min-size 50MB       # 多目录/只看大文件
+python scripts/find_duplicates.py "dir" --move-to "D:/重复文件"        # 移到回收区（推荐，不直接删）
+python scripts/find_duplicates.py "dir" --delete --confirm            # 确认后删除（每组保留1个）
+```
+
+- 算法：大小分组 → 首 64KB 哈希 → 全文 SHA-256 三级过滤，避免全盘全文哈希
+- 红线：`--delete` 必须配 `--confirm`；每组自动保留字典序最小的路径；跳过 .lnk/.dll/.exe 等
+
+## 用户文件夹重定向 D 盘（Sophia Known Folder 同款，2026-08-24 新增）
+
+C 盘紧张的机器可把 Desktop/Documents/Downloads/Pictures/Music/Videos 指向 D 盘（只改 HKCU 注册表，无需管理员）：
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/redirect_known_folders.ps1                        # 查看当前
+powershell -ExecutionPolicy Bypass -File scripts/redirect_known_folders.ps1 -Redirect D:\Users\xxx13  # 重定向
+powershell -ExecutionPolicy Bypass -File scripts/redirect_known_folders.ps1 -Undo                   # 恢复默认
+```
+
+- 只改 `HKCU\...\User Shell Folders` 指向，**不移动文件**；执行前自动 reg export 备份到 `~/jiasu_known_folder_backup/`
+- 重定向后需手动搬旧文件：`robocopy "C:\Users\<user>\Desktop" "D:\Users\<user>\Desktop" /MOVE /E`
+- 与 AppData junction 迁移互补：junction 迁缓存/数据目录，Known Folder 迁用户文档
+- 红线：先搬文件再删旧目录，确认资源管理器正常后再清理
 
 ## 常见陷阱
 
@@ -624,10 +717,18 @@ Start-Process cmd -Verb RunAs -ArgumentList '/c rd /s /q "C:\Program Files\XXXX"
 
 - `scripts/health_check.py` — 只读全面体检（磁盘/安全/启动项/服务/还原/缓存），中文报告 + [WARN] 异常标出，cron 与手动复用
 - `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：测量→安全删除→逐项报告释放 GB，覆盖包缓存/临时文件/剪映/浏览器/微信QQ/QQPCMgr/ima/Hermes/Codex 缓存，跳过被锁定文件与需管理员项
-- `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction
+- `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction；`--rules` 附加规则库匹配
+- `scripts/rules.json` — 清理规则库（Dism++ 式数据化）：40+ 条已知缓存规则，路径占位符/mode/risk 字段，新增软件只改此文件
+- `scripts/backup_revert.py` — 可逆性保障：修改前 reg export + 服务启动类型快照 + 生成 undo.ps1 一键回滚（revert/ 已 gitignore）
+- `scripts/system_repair.ps1` — 系统修复（winutil Fixes 同款）：SFC/DISM RestoreHealth/WU 重置/网络重置，分步可选
+- `scripts/find_locked_by.py` — 锁文件句柄查询（Restart Manager API），找出占用路径的进程 PID
+- `scripts/find_duplicates.py` — 重复文件扫描（dupeGuru 思路），三级过滤哈希，默认只列，--delete 需 --confirm
+- `scripts/dns_tool.py` — DNS 工具：备份/预设切换/延迟测试/恢复（hellzerg/optimizer 同款）
+- `scripts/redirect_known_folders.ps1` — 用户文件夹重定向 D 盘（Sophia Known Folder 同款），可 -Undo 回滚
+- `scripts/uninstall_by_audit.py` — 审计结果接 winget 批量卸载（winutil 同款），默认 dry-run
 - `scripts/find_installed_apps.py` — 查找软件安装位置（卸载前确认所有残留路径）
 - `scripts/audit_unused_software.ps1` — 软件使用审计（60天未用清单）
 - `references/disk_scan.py` — C盘关键目录占用扫描
 - `references/pagefile_migrate.ps1` — pagefile 迁移到 D 盘（需管理员）
 - `references/qqpcmgr-feature-map.md` — 腾讯电脑管家逆向笔记（功能地图/方法论）
-- `references/windows-optimization-projects.md` — GitHub 优质清理/加速/安全项目调研（Win11Debloat/Sophia/optimizerDuck/WindowsClear/RemoveWindowsAI 等，含抓取技巧）
+- `references/windows-optimization-projects.md` — GitHub 优质清理/加速/安全项目调研（winutil/Win11Debloat/Sophia/optimizer/optimizerDuck/Dism++/WindowsClear/RemoveWindowsAI/dupeGuru 等，含抓取技巧）
