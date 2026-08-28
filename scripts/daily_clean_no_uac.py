@@ -11,7 +11,7 @@ TEMP = os.environ.get('TEMP', LOCALAPPDATA + '/Temp')
 def free_gb(drive='C:\\'):
     free = ctypes.c_ulonglong(0)
     ctypes.windll.kernel32.GetDiskFreeSpaceExW(ctypes.c_wchar_p(drive), ctypes.byref(free), None, None)
-    return free.value / 1e9
+    return free.value / (1024**3)
 
 def dir_size(path):
     total = 0
@@ -95,7 +95,7 @@ def clean_item(name, path, mode='contents'):
             skipped, freed = 0, before
         except (PermissionError, OSError):
             skipped, freed = 1, 0.0
-    return (name, before / 1e9, freed / 1e9, skipped)
+    return (name, before / (1024**3), freed / (1024**3), skipped)
 
 results = []
 def report(name, path, mode='contents'):
@@ -149,8 +149,8 @@ n, before, freed, skipped = clean_item("SystemProfile tw-*.tmp",
 # 只统计匹配文件的释放（单独处理）
 tw_freed = rm_files_by_pattern("C:/Windows/System32/config/systemprofile/AppData/Local", r'^tw-.*\.tmp$')
 if tw_freed > 1e6:
-    results.append({'name': 'SystemProfile tw-*.tmp', 'before_gb': round(tw_freed/1e9, 3),
-                    'freed_gb': round(tw_freed/1e9, 3), 'skipped': 0})
+    results.append({'name': 'SystemProfile tw-*.tmp', 'before_gb': round(tw_freed/(1024**3), 3),
+                    'freed_gb': round(tw_freed/(1024**3), 3), 'skipped': 0})
 
 # ---------- 4. 剪映缓存（绝不碰 Projects）----------
 jianying = LOCALAPPDATA + "/JianyingPro/User Data"
@@ -233,8 +233,8 @@ if os.path.isdir(hermes):
         except OSError:
             pass
         if freed > 1e6:
-            results.append({'name': '.hermes 旧轮转日志', 'before_gb': round(freed/1e9, 3),
-                            'freed_gb': round(freed/1e9, 3), 'skipped': 0})
+            results.append({'name': '.hermes 旧轮转日志', 'before_gb': round(freed/(1024**3), 3),
+                            'freed_gb': round(freed/(1024**3), 3), 'skipped': 0})
     # 旧会话 dump（仅 *.json，不动 state.db）
     sess = hermes + "/sessions"
     if os.path.isdir(sess):
@@ -253,8 +253,8 @@ if os.path.isdir(hermes):
         except OSError:
             pass
         if freed > 1e6:
-            results.append({'name': '.hermes/sessions 旧 dump', 'before_gb': round(freed/1e9, 3),
-                            'freed_gb': round(freed/1e9, 3), 'skipped': 0})
+            results.append({'name': '.hermes/sessions 旧 dump', 'before_gb': round(freed/(1024**3), 3),
+                            'freed_gb': round(freed/(1024**3), 3), 'skipped': 0})
     # Hermes 内置浏览器 profile 缓存
     bps = hermes + "/browser-profiles"
     if os.path.isdir(bps):

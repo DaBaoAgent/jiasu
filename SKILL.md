@@ -1,6 +1,6 @@
 ---
 name: jiasu
-description: 触发词"清理电脑/加速电脑"：磁盘深度清理+缓存迁移+开机加速+安全加固。
+description: 触发词"清理电脑/加速电脑/杀毒/查杀/安全体检"：磁盘深度清理+缓存迁移+开机加速+安全加固+Defender查杀防护+软件更新。
 author: Dabao
 license: MIT
 platforms: [windows]
@@ -50,6 +50,95 @@ python scripts/backup_revert.py apply <时间戳>  # 一键回滚（弹 UAC，�
 - 杀软判断：Defender `AMRunningMode=Passive` + 第三方杀软（如腾讯电脑管家）共存 = 正常（RealTimeProtectionEnabled=False 不必告警）；`RealTime=True` 或第三方缺失才算异常
 - 还原点非提权查不到数量：用 `Test-Path "C:\System Volume Information"` 判断系统还原是否启用（存在=已启用）
 - 可清项阈值 0.5G；codex-runtimes/sessions 列出来仅提示**不要删**（venv 基底/会话历史红线）
+
+## 安全卫士（Defender 查杀 + 防护，2026-08-28 新增）
+
+触发词：**杀毒 / 查杀 / 安全体检 / 病毒 / 防护 / 软件更新**。对应腾讯电脑管家/360安全卫士的查杀+防护能力，全部用系统自带 Defender + winget，零安装。
+
+### 0. 本机状态（2026-08-28 已修复）
+
+Defender 实时保护已恢复：AMRunningMode=Normal、RTP=True、签名已更新。**曾裸奔的原因与修复**（防复发必读）：
+- QQ电脑管家已**彻底删除**（2026-08-28）：QQPCRTP/qmbsrv/23734 服务 + 6 个内核驱动（QMUdisk/QQSysMonX64/TAOKernelDriver/Tsnethlpx64/TSSysKit/TcHardWare）在后台**反复把 Defender 配置写回禁用**（Defender Operational 日志 5007 事件：RtpPluginStop/IsServiceRunning=0）。已全部禁用/删除，AppData/注册表/卸载项已清
+- **重启后自动完成**：HKLM RunOnce「QQPCMgrFinalClean」→ `C:\Users\xxx13\qqpcmgr_final_clean.ps1`（删受保护进程/锁定服务项/锁定目录/WOW6432Node 键），结果落 `C:\Users\xxx13\qqpcmgr_final_result.txt`
+- **⚠ 实战发现（2026-08-28 夜，必须复修一次）**：qmbsrv（PPL 进程）临死前会**再次写回** `HKLM\SOFTWARE\Microsoft\Windows Defender\DisableAntiSpyware=1`——clean4 当时删掉了该键，qmbsrv 又写回；重启后 qmbsrv 消失但禁用键仍在，Defender 三灯全灭。**重启后必须再跑一次恢复**：删禁用键（HKLM\SOFTWARE\Microsoft\Windows Defender 与 Policies 两处 DisableAntiSpyware/DisableAntiVirus）+ `Set-MpPreference -DisableRealtimeMonitoring $false` + `Update-MpSignature`。恢复脚本 `C:\Users\xxx13\qqpcmgr_defender_restore.ps1`（提权静默，结果落同目录 result.txt），验证 `Get-MpComputerStatus`：AntivirusEnabled/RTP/AMService 三灯 True + AMRunningMode=Normal
+- 修复套路：`sc stop` + `sc config start= disabled` + `sc delete` 全部残留服务/驱动（Running 的服务 sc delete 只是标记，需重启）+ 删 `HKLM\SOFTWARE\Microsoft\Windows Defender\DisableAntiSpyware` 与 `Policies\...\DisableAntiSpyware` 两个禁用键 → WinDefend auto+start → Set-MpPreference → Update-MpSignature
+- **TRAE 也已彻底删除**（2026-08-28）：`%APPDATA%\Trae CN`、`.trae-cn`、`.trae-aicc`、`HKCU\Software\Bytedance\Trae CN`、卸载项全清（Bytedance 键下剪映/CapCut/豆包未动）
+- 若再出现 5007 配置写回事件 + WinDefend 反复变 Manual → 查 `Get-Service QQPCRTP,qmbsrv,23734` 是否复活，重复禁用
+
+### 1. 查杀封装脚本（scripts/defender_scan.py）
+
+```bash
+python scripts/defender_scan.py status      # 只读：Defender 状态+签名时间（[OK]/[WARN]）
+python scripts/defender_scan.py update      # 更新签名（提权，本机免 UAC 静默）
+python scripts/defender_scan.py quick       # 快速查杀（提权，5-15 分钟）
+python scripts/defender_scan.py full        # 全盘查杀（提权，1-3 小时，放凌晨）
+python scripts/defender_scan.py threats     # 隔离区/检测历史
+python scripts/defender_scan.py restore     # 恢复向导（打印修复步骤）
+```
+
+底层命令（也可直接跑）：
+```bash
+# 签名更新
+powershell -Command "Update-MpSignature"
+# 快速查杀 / 全盘查杀
+"C:\Program Files\Windows Defender\MpCmdRun.exe" -Scan -ScanType 1
+"C:\Program Files\Windows Defender\MpCmdRun.exe" -Scan -ScanType 2
+# 隔离区管理
+powershell -Command "Get-MpThreat | Select ThreatName,SeverityID,Resources"
+powershell -Command "Remove-MpThreat -ThreatID <id>"   # 处理后删除记录
+```
+**注意**：MpCmdRun 查杀需管理员（本机 UAC 已免弹窗，提权静默执行）；脚本的提权模式 = 写 ps1 + Start-Process -Verb RunAs + 结果文件验证（沿 windows-admin-ops 模式）。
+
+### 2. 启动项三路审计（Autoruns 思路，只读）
+
+可疑启动项 = 木马驻留点，交叉检查三个位置（不只是 Run 键）：
+```bash
+# ① 注册表 Run 键（HKCU + HKLM + WOW6432Node）
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
+reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run"
+# ② 启动文件夹
+ls "$APPDATA/Microsoft/Windows/Start Menu/Programs/Startup"
+# ③ 计划任务（注意：schtasks 中文输出 GBK，python 读 decode('gbk')）
+schtasks /query /fo LIST /v
+# ④ 服务（启动类型 Automatic 且无签名/路径可疑的）
+powershell -Command "Get-CimInstance Win32_Service | Where-Object {$_.StartMode -eq 'Auto'} | Select Name,PathName | Format-Table"
+```
+异常信号：路径在 TEMP/AppData 下的 Auto 服务、计划任务执行体在用户目录且无签名、Run 键指向 TEMP。发现可疑项 → 先查进程/文件签名，别直接删。
+
+### 3. 防火墙审计（只读）
+
+```bash
+# 入站规则列表（开放端口一览）
+netsh advfirewall firewall show rule name=all dir=in | findstr /i "规则名称 本地端口 程序"
+# 当前监听端口（对外的暴露面）
+netstat -ano | findstr LISTENING
+```
+开放了非预期端口（如 445/3389 对外）→ 检查对应程序，用 `netsh advfirewall firewall delete rule name=X` 收紧（详见 windows-admin-ops）。
+
+### 4. 软件管家（winget，系统自带）
+
+```bash
+winget upgrade --all --accept-source-agreements --accept-package-agreements --disable-interactivity   # 批量更新
+winget list      # 已装清单（本机 97 个）
+winget search <name>   # 搜索
+```
+- 更新前先建还原点（万一新版有问题可回滚）；大软件（微信/百度网盘）更新时先退出进程
+- 卸载方向复用 `scripts/uninstall_by_audit.py`（闲置审计 + 批量卸载）
+
+### 5. 每日安全守护 cron（已配置 2026-08-28）
+
+```
+schedule: "0 4 * * *"     # 每天 4:30（避开 jiasu 2:00 清理 / AutoAI 3:00 / UUMit 5:00）
+skills:   ["jiasu"]
+prompt:   执行 jiasu 技能安全守护（免 UAC 模式）：
+          1. python defender_scan.py status 检查 Defender 状态，异常则执行恢复向导
+          2. python defender_scan.py update 更新签名
+          3. 每周一跑全盘查杀（defender_scan.py full），其余日子快速查杀（quick）
+          4. 启动项三路审计 + 防火墙审计（只读），发现可疑项标记 [WARN]
+          5. 报告：Defender 状态 + 查杀结果 + 威胁数 + 审计异常项（中文简明）
+```
+
+**⚠ 红线：cron 里不做软件更新**（winget 更新/检查都不进定时任务）——软件更新是手动/按需操作，避免凌晨自动更新大软件（微信/百度网盘）导致使用异常。用户要更新时手动跑 `winget upgrade --all`。
 
 ## 安全加固四件套（社区最佳实践，先做）
 
@@ -713,9 +802,13 @@ Start-Process cmd -Verb RunAs -ArgumentList '/c rd /s /q "C:\Program Files\XXXX"
 ```
 有 UninstallString 的软件直接用注册表中的卸载命令。
 
+### 12. 微信/360 搬家数据 ACL 拒绝删除（WinError 5）
+微信文件（xwechat_files 下的 msg/attach、msg/file）常带只读属性+限制性 ACL，普通用户连 `os.chmod` 都报 PermissionError（不只是 rm 删不掉）。bash `chmod -R u+w` 不生效。解法：写 .ps1 → `Start-Process powershell -Verb RunAs`（本机已配 ConsentPromptBehaviorAdmin=0 静默提权）执行 `takeown /F <路径> /R /D Y` + `icacls <路径> /T /grant '<用户名>:(OI)(CI)F'` + `Remove-Item -Recurse -Force`，结果写 C 盘文件验证。注意 rm 的 `&&` 断链：一个路径权限失败会让后续 rm 全部跳过，多目标删除每项分开执行。
+
 ## 参考脚本
 
 - `scripts/health_check.py` — 只读全面体检（磁盘/安全/启动项/服务/还原/缓存），中文报告 + [WARN] 异常标出，cron 与手动复用
+- `scripts/defender_scan.py` — 安全卫士封装：Defender 状态/签名更新/快速查杀/全盘查杀/隔离区/恢复向导（提权模式，本机免 UAC 静默）
 - `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：测量→安全删除→逐项报告释放 GB，覆盖包缓存/临时文件/剪映/浏览器/微信QQ/QQPCMgr/ima/Hermes/Codex 缓存，跳过被锁定文件与需管理员项
 - `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction；`--rules` 附加规则库匹配
 - `scripts/rules.json` — 清理规则库（Dism++ 式数据化）：40+ 条已知缓存规则，路径占位符/mode/risk 字段，新增软件只改此文件
