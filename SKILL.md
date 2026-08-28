@@ -49,7 +49,7 @@ python scripts/backup_revert.py apply <时间戳>  # 一键回滚（弹 UAC，�
 - 服务期望值：DiagTrack=Disabled，edgeupdate/edgeupdatem/wpscloudsvr/SysMain=Manual，WinDefend=Automatic，wuauserv=Manual
 - 杀软判断：Defender `AMRunningMode=Passive` + 第三方杀软（如腾讯电脑管家）共存 = 正常（RealTimeProtectionEnabled=False 不必告警）；`RealTime=True` 或第三方缺失才算异常
 - 还原点非提权查不到数量：用 `Test-Path "C:\System Volume Information"` 判断系统还原是否启用（存在=已启用）
-- 可清项阈值 0.5G；codex-runtimes/sessions 列出来仅提示**不要删**（venv 基底/会话历史红线）
+- 可清项来自 `rules.json` 规则库（**单一事实源**，≥0.5G 列出，与 `deep_scan.py --rules` 一致）；codex-runtimes/sessions 单列"红线提示"**不要删**（venv 基底/会话历史红线）
 
 ## 安全卫士（Defender 查杀 + 防护，2026-08-28 新增）
 
@@ -234,7 +234,7 @@ Get-MpPreference | Select-Object AttackSurfaceReductionRules_Ids
 python scripts/deep_scan.py --rules   # 广扫 + 自动匹配 rules.json 已知缓存项（占用/风险/说明）
 ```
 
-规则库 `scripts/rules.json` 已覆盖：剪映全部缓存子目录/旧版本、美图/WPS 旧版本、微信小程序/WebView、腾讯会议动态资源、QQPCMgr、ima.copilot、ms-playwright 旧版、Codex、pip/uv/npm、系统残留目录、WU 缓存、CrashDumps/WER、Hermes 自有缓存等 40+ 条。**新增软件缓存规则只改 rules.json 不用改代码**（路径支持 `%LOCALAPPDATA%`/`%APPDATA%`/`%USERPROFILE%`/`%SystemRoot%`/`%TEMP%` 占位符，mode 支持 contents/file/keep_latest/cef_cache，risk 分 safe/moderate）。
+规则库 `scripts/rules.json` 已覆盖：剪映全部缓存子目录/旧版本、美图/WPS 旧版本、微信小程序/WebView、腾讯会议动态资源、QQPCMgr、ima.copilot、ms-playwright 旧版、Codex、pip/uv/npm、系统残留目录、WU 缓存、CrashDumps/WER、Hermes 自有缓存等 40+ 条。**rules.json 是清理清单的唯一事实源**：新增软件缓存规则只改 rules.json，`deep_scan.py --rules`（扫描）、`health_check.py`（体检列出）、`daily_clean_no_uac.py`（每日清理）三处自动生效，不用改代码（路径支持 `%LOCALAPPDATA%`/`%APPDATA%`/`%USERPROFILE%`/`%SystemRoot%`/`%TEMP%` 占位符，mode 支持 contents/file/keep_latest/cef_cache，risk 分 safe/moderate）。
 
 **别忘了 D 盘**：`D:\Program Files` 和 `D:\Program Files (x86)` 也可能有软件安装。夸克浏览器、美图、腾讯会议等常装到 D 盘，旧版本残留同样可清（Quark 双版本各占 1.3GB，只保留最新版）。
 
@@ -301,18 +301,18 @@ Register-ScheduledTask -TaskName "HermesAutoClean" -Action $action -Trigger $tri
 schedule: "0 2 * * *"
 skills:   ["jiasu"]
 prompt:   执行 jiasu 技能每日自动清理（免 UAC 模式）：
-          1. 运行 scripts/deep_scan.py 广扫 + 记录清理前可用空间
-          2. Phase 1 安全清理（pip/npm/uv 缓存、TEMP、Windows Temp、Prefetch、CrashDumps/WER、回收站）
-          3. 剪映 User Data/Cache（绝不动 Projects）、浏览器 Cache/Code Cache/GPUCache、
-             微信/QQ Image/Video/File 缓存、系统残留目录（$WinREAgent 等）
-          4. Hermes/Codex 自有缓存（logs/screenshots、.codex/logs_2.sqlite 等）
-          5. 跳过所有需管理员操作（服务禁用、DISM、pagefile、注册表策略、计划任务创建）
-          6. 报告：逐项释放 GB + 总量 + 清理后剩余空间（中文简明）
+          1. 运行 scripts/daily_clean_no_uac.py（规则库 + 内置复杂逻辑，覆盖 pip/npm/uv 缓存、
+             TEMP/Windows Temp/Prefetch/CrashDumps/WER、系统残留目录、剪映 Cache（绝不动 Projects）、
+             浏览器缓存、微信/QQ Image/Video/File、QQPCMgr、ima.copilot、Hermes/Codex 自有缓存）
+             + 记录清理前可用空间；规则库新增项自动生效，无需改 cron
+          2. 回收站清空（Clear-RecycleBin）
+          3. 跳过所有需管理员操作（服务禁用、DISM、pagefile、注册表策略、计划任务创建）
+          4. 报告：逐项释放 GB + 总量 + 清理后剩余空间（中文简明）
 ```
 
 **cron 无人值守注意**：
 - 只跑免 UAC 部分；管理员操作依赖一次性配置（`ConsentPromptBehaviorAdmin=0`，见"免 UAC 提权"），未配置时全部跳过
-- `deep_scan.py` 等脚本在技能目录 `scripts/` 下，cron prompt 里用绝对路径引用（如 `C:\Users\<user>\AppData\Local\hermes\skills\devops\jiasu\scripts\deep_scan.py`）
+- `daily_clean_no_uac.py` 在技能目录 `scripts/` 下，cron prompt 里用绝对路径引用（如 `C:\Users\<user>\AppData\Local\hermes\skills\devops\jiasu\scripts\daily_clean_no_uac.py`）；`python xxx.py --rules` 可单独验证规则库清理
 - 被进程锁定的文件（Python 缓存、mcp-stderr.log）跳过即可，不要强删（见陷阱 #7）
 - Hermes cron 版与任务计划程序版（HermesAutoClean 每周日）可并存，互不冲突
 
@@ -508,18 +508,9 @@ reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v BaiduYunGuanj
 
 ### 3. 服务禁用/设手动（参考 sysdeepopt.ini 实测清单）
 
-腾讯管家实测会把以下服务降级为手动（本机 `%APPDATA%/Tencent/QQPCMgr/sysdeepopt.ini` 实锤）：
-wpscloudsvr（WPS云服务）、edgeupdate / edgeupdatem / microsoftedgeelevationservice（Edge更新）、mtxxservice（美图）等。
+腾讯管家实测会把更新类/云同步类服务降级为手动（本机 `%APPDATA%/Tencent/QQPCMgr/sysdeepopt.ini` 实锤）——wpscloudsvr（WPS云服务）、edgeupdate / edgeupdatem / microsoftedgeelevationservice（Edge更新）、mtxxservice（美图）等。**完整清单见下方第 6 节「服务微调清单」（13+ 服务，此处不重复列）。**
 
-安全做法：**更新类/云同步类服务设 `manual`**（要用时按需拉起），不要轻易 `disabled`：
-
-```powershell
-sc config wpscloudsvr start= manual
-sc config edgeupdate start= manual
-sc config edgeupdatem start= manual
-sc config mtxxservice start= manual
-```
-需管理员（UAC）。先 `sc query wpscloudsvr` 确认服务存在。**红线**：不动杀毒、驱动、Windows 核心服务（wuauserv 除外，见 Phase 3）。
+安全做法：**更新类/云同步类服务设 `manual`**（要用时按需拉起），不要轻易 `disabled`。需管理员（UAC）；先 `sc query <服务名>` 确认服务存在。**红线**：不动杀毒、驱动、Windows 核心服务（wuauserv 除外，见 Phase 3）。
 
 ### 4. DNS 优化（dns_tool.py，hellzerg/optimizer 同款；切换需管理员）
 
@@ -807,11 +798,12 @@ Start-Process cmd -Verb RunAs -ArgumentList '/c rd /s /q "C:\Program Files\XXXX"
 
 ## 参考脚本
 
+- `scripts/_common.py` — 公共工具（dir_size/free_gb/JUNCTION_NAMES/rules.json 匹配/提权执行），各脚本共用，勿重复实现
 - `scripts/health_check.py` — 只读全面体检（磁盘/安全/启动项/服务/还原/缓存），中文报告 + [WARN] 异常标出，cron 与手动复用
 - `scripts/defender_scan.py` — 安全卫士封装：Defender 状态/签名更新/快速查杀/全盘查杀/隔离区/恢复向导（提权模式，本机免 UAC 静默）
-- `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：测量→安全删除→逐项报告释放 GB，覆盖包缓存/临时文件/剪映/浏览器/微信QQ/QQPCMgr/ima/Hermes/Codex 缓存，跳过被锁定文件与需管理员项
+- `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：**默认 = rules.json 规则库（safe/contents/file/cef_cache 项）+ 内置复杂逻辑**（剪映 Projects 检查/浏览器 profile 展开/微信QQ 递归/Hermes/Codex 特殊项），测量→安全删除→逐项报告释放 GB；`--rules` 只跑规则库（调试用）；新增缓存规则只改 rules.json 自动生效
 - `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction；`--rules` 附加规则库匹配
-- `scripts/rules.json` — 清理规则库（Dism++ 式数据化）：40+ 条已知缓存规则，路径占位符/mode/risk 字段，新增软件只改此文件
+- `scripts/rules.json` — 清理规则库（Dism++ 式数据化，**单一事实源**）：40+ 条已知缓存规则，路径占位符/mode/risk 字段；`deep_scan.py --rules` 匹配、`health_check.py` 列出、`daily_clean_no_uac.py` 自动清理，新增软件只改此文件
 - `scripts/backup_revert.py` — 可逆性保障：修改前 reg export + 服务启动类型快照 + 生成 undo.ps1 一键回滚（revert/ 已 gitignore）
 - `scripts/system_repair.ps1` — 系统修复（winutil Fixes 同款）：SFC/DISM RestoreHealth/WU 重置/网络重置，分步可选
 - `scripts/find_locked_by.py` — 锁文件句柄查询（Restart Manager API），找出占用路径的进程 PID
@@ -821,7 +813,6 @@ Start-Process cmd -Verb RunAs -ArgumentList '/c rd /s /q "C:\Program Files\XXXX"
 - `scripts/uninstall_by_audit.py` — 审计结果接 winget 批量卸载（winutil 同款），默认 dry-run
 - `scripts/find_installed_apps.py` — 查找软件安装位置（卸载前确认所有残留路径）
 - `scripts/audit_unused_software.ps1` — 软件使用审计（60天未用清单）
-- `references/disk_scan.py` — C盘关键目录占用扫描
 - `references/pagefile_migrate.ps1` — pagefile 迁移到 D 盘（需管理员）
 - `references/qqpcmgr-feature-map.md` — 腾讯电脑管家逆向笔记（功能地图/方法论）
 - `references/windows-optimization-projects.md` — GitHub 优质清理/加速/安全项目调研（winutil/Win11Debloat/Sophia/optimizer/optimizerDuck/Dism++/WindowsClear/RemoveWindowsAI/dupeGuru 等，含抓取技巧）

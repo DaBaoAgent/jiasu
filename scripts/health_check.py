@@ -2,31 +2,24 @@
 """jiasu 全面体检脚本（只读，免 UAC）
 输出中文体检报告，异常项用 [WARN] 标出。手动触发与每日 cron 复用。
 用法: python health_check.py
+
+可清项清单来自 rules.json 规则库（单一事实源，与 deep_scan --rules 一致），
+codex-runtimes/codex sessions 单独列红线提示（勿删）。
 """
 import os
 import re
 import subprocess
 import sys
 
+import _common
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-
-def dir_size_gb(path):
-    if not os.path.exists(path):
-        return -1
-    total = 0
-    for root, _dirs, files in os.walk(path):
-        for f in files:
-            try:
-                total += os.path.getsize(os.path.join(root, f))
-            except OSError:
-                pass
-    return total / (1024**3)
 
 
 def re_search_percent(line):
     m = re.search(r"(\d+)%", line)
     return int(m.group(1)) if m else None
+
 
 def ps(cmd, timeout=60):
     """Run a PowerShell query, return decoded text (GBK-safe)."""
@@ -39,15 +32,18 @@ def ps(cmd, timeout=60):
     except Exception as e:
         return "[ERR] {}".format(e)
 
+
 WARN = []
 INFO = []
 OK = []
+
 
 def check(name, ok_cond, detail, warn_text=None):
     if ok_cond:
         OK.append("{}: {}".format(name, detail))
     else:
         WARN.append("{}: {} {}".format(name, detail, warn_text or ""))
+
 
 # ---------- 1. 磁盘 ----------
 print("===== 1. 磁盘空间 =====")
@@ -132,25 +128,25 @@ else:
     print("  系统还原: 未检测到卷监控")
     WARN.append("系统还原未启用（建议 Enable-ComputerRestore C: + Checkpoint-Computer 建点）")
 
-# ---------- 7. 大缓存可清项 ----------
-print("\n===== 7. 缓存可清项(>0.5G) =====")
-cand = [
-    ("剪映Cache", r"C:\Users\xxx13\AppData\Local\JianyingPro\User Data\Cache"),
-    ("opencode缓存", r"C:\Users\xxx13\.cache\opencode"),
-    ("codex-runtimes", r"C:\Users\xxx13\.cache\codex-runtimes"),
-    ("codex sessions", r"C:\Users\xxx13\.codex\sessions"),
-    ("Chrome", r"C:\Users\xxx13\AppData\Local\Google\Chrome\User Data\Default\Cache"),
-    ("微信radium", r"C:\Users\xxx13\AppData\Roaming\Tencent\xwechat\radium"),
-    ("WPS模板池", r"C:\Users\xxx13\AppData\Roaming\kingsoft\wps\addons\pool"),
-]
-for name, path in cand:
-    try:
-        sz = dir_size_gb(path)
-    except Exception:
-        sz = -1
+# ---------- 7. 大缓存可清项（来自 rules.json，单一事实源）----------
+print("\n===== 7. 缓存可清项(>0.5G，rules.json 规则库) =====")
+hits = _common.match_rules()
+shown = 0
+for r, real, size, note in hits:
+    if size >= 0.5:
+        print("  [{}] {:.2f}G{}".format(r["name"], size, " — " + note if note else ""))
+        INFO.append("可清缓存 {}: {:.2f}G".format(r["name"], size))
+        shown += 1
+if shown == 0:
+    print("  （无 ≥0.5G 的可清项）")
+
+# ---------- 7b. 红线提示（仅提示不要删）----------
+print("\n===== 7b. 红线提示（勿删） =====")
+for name, path in [("codex-runtimes", r"C:\Users\xxx13\.cache\codex-runtimes"),
+                   ("codex sessions", r"C:\Users\xxx13\.codex\sessions")]:
+    sz = _common.dir_size(path) / _common.GB if os.path.exists(path) else -1
     if sz >= 0.5:
-        print("  [{}] {:.2f}G".format(name, sz))
-        INFO.append("可清缓存 {}: {:.2f}G".format(name, sz))
+        print("  [{}] {:.2f}G —— venv 基底/会话历史，勿删".format(name, sz))
 
 # ---------- 汇总 ----------
 print("\n===== 汇总 =====")

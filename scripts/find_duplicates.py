@@ -23,6 +23,8 @@ import hashlib
 import argparse
 from collections import defaultdict
 
+import _common
+
 HEAD_CHUNK = 64 * 1024
 FULL_CHUNK = 1024 * 1024
 SKIP_EXT = {".lnk", ".tmp", ".log", ".dll", ".exe", ".sys"}
@@ -55,11 +57,7 @@ def scan_dirs(roots, min_size):
             continue
         for dirpath, dirnames, filenames in os.walk(root):
             # 跳过 junction 循环名
-            dirnames[:] = [d for d in dirnames if d not in (
-                "Application Data", "Local Settings", "Cookies", "History",
-                "Temporary Internet Files", "My Documents", "NetHood",
-                "PrintHood", "Recent", "SendTo", "Start Menu", "Templates",
-                "$RECYCLE.BIN", "System Volume Information")]
+            dirnames[:] = [d for d in dirnames if d not in _common.JUNCTION_NAMES]
             for fn in filenames:
                 if os.path.splitext(fn)[1].lower() in SKIP_EXT:
                     continue
@@ -71,7 +69,7 @@ def scan_dirs(roots, min_size):
                 if sz >= min_size:
                     by_size[sz].append(p)
                     total += 1
-    print(f"扫描完成: {total} 个文件进入分组（≥{min_size/1e6:.0f}MB）")
+    print(f"扫描完成: {total} 个文件进入分组（≥{min_size/_common.MB:.0f}MB）")
     return by_size
 
 
@@ -106,11 +104,11 @@ def report(groups, show_all=False):
     for g in groups:
         waste = g["size"] * (len(g["files"]) - 1)
         total_waste += waste
-        print(f"\n=== {len(g['files'])} 个重复 · 每个 {g['size']/1e6:.1f} MB · 可省 {waste/1e9:.2f} GB ===")
+        print(f"\n=== {len(g['files'])} 个重复 · 每个 {g['size']/_common.MB:.1f} MB · 可省 {waste/_common.GB:.2f} GB ===")
         for i, f in enumerate(g["files"]):
             mark = "保留" if i == 0 else "  删"
             print(f"  [{mark}] {f}")
-    print(f"\n共 {len(groups)} 组重复，总计可释放 {total_waste/1e9:.2f} GB")
+    print(f"\n共 {len(groups)} 组重复，总计可释放 {total_waste/_common.GB:.2f} GB")
     return total_waste
 
 

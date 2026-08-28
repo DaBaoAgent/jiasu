@@ -11,23 +11,7 @@
 import os
 import sys
 
-def dir_size(path):
-    total = 0
-    if not os.path.exists(path):
-        return 0
-    try:
-        with os.scandir(path) as it:
-            for e in it:
-                try:
-                    if e.is_file(follow_symlinks=False):
-                        total += e.stat().st_size
-                    elif e.is_dir(follow_symlinks=False):
-                        total += dir_size(e.path)
-                except (OSError, PermissionError):
-                    pass
-    except (OSError, PermissionError):
-        pass
-    return total
+import _common
 
 
 def scan_directory(base, keyword, label=""):
@@ -40,7 +24,7 @@ def scan_directory(base, keyword, label=""):
             for e in it:
                 if keyword.lower() in e.name.lower():
                     if e.is_dir(follow_symlinks=False):
-                        sz = dir_size(e.path)
+                        sz = _common.dir_size(e.path)
                         results.append((sz, e.path))
                     elif e.is_file(follow_symlinks=False):
                         results.append((e.stat().st_size, e.path))
@@ -112,7 +96,7 @@ def main():
                 print(f"\n  [{label}]")
                 for sz, path in sorted(hits, reverse=True):
                     if sz > 0:
-                        print(f"    {sz/1e9:7.2f} GB  {path}")
+                        print(f"    {sz/_common.GB:7.2f} GB  {path}")
                     else:
                         print(f"           --  {path}")
 
@@ -142,7 +126,7 @@ def main():
                 print(f"\n  [npm global node_modules]")
                 for sz, path in sorted(hits, reverse=True):
                     if sz > 0:
-                        print(f"    {sz/1e9:7.2f} GB  {path}")
+                        print(f"    {sz/_common.GB:7.2f} GB  {path}")
                     else:
                         print(f"           --  {path}")
 

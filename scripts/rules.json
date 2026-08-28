@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "comment": "jiasu 清理规则库（Dism++ 式数据化设计）。deep_scan.py --rules 自动匹配；daily_clean_no_uac.py --rules 自动清理 risk=safe 且 mode=contents 的项。占位符: %USERPROFILE% %LOCALAPPDATA% %APPDATA% %TEMP% %SystemRoot% %ProgramData%。新增软件缓存规则只改本文件，不用动代码。",
+  "comment": "jiasu 清理规则库（Dism++ 式数据化设计，单一事实源）。deep_scan.py --rules 自动匹配；health_check.py 列出可清项；daily_clean_no_uac.py 默认清理 risk=safe 且 mode in (contents/file/cef_cache) 的项（keep_latest/moderate 跳过）。占位符: %USERPROFILE% %LOCALAPPDATA% %APPDATA% %TEMP% %SystemRoot% %ProgramData%。新增软件缓存规则只改本文件，扫描/体检/清理三处自动生效，不用动代码。",
   "rules": [
     {"name": "剪映 recognize 语音识别缓存", "path": "%LOCALAPPDATA%/JianyingPro/User Data/Cache/recognize", "mode": "contents", "risk": "safe", "note": "语音识别缓存，常 20-30GB，按需自动重建"},
     {"name": "剪映 audioWave 波形缓存", "path": "%LOCALAPPDATA%/JianyingPro/User Data/Cache/audioWave", "mode": "contents", "risk": "safe", "note": "音频波形缓存"},
@@ -31,8 +31,10 @@
     {"name": "Codex 临时目录", "path": "%USERPROFILE%/.codex/.tmp", "mode": "contents", "risk": "safe", "note": ""},
     {"name": "Codex 生成图片", "path": "%USERPROFILE%/.codex/generated_images", "mode": "contents", "risk": "safe", "note": "200-500MB"},
     {"name": "pip 缓存", "path": "%LOCALAPPDATA%/pip/cache", "mode": "contents", "risk": "safe", "note": ""},
+    {"name": "pip 缓存 (Roaming)", "path": "%APPDATA%/pip/cache", "mode": "contents", "risk": "safe", "note": ""},
     {"name": "uv 缓存", "path": "%LOCALAPPDATA%/uv/cache", "mode": "contents", "risk": "safe", "note": ""},
     {"name": "npm-cache", "path": "%LOCALAPPDATA%/npm-cache", "mode": "contents", "risk": "safe", "note": ""},
+    {"name": "npm-cache (Roaming)", "path": "%APPDATA%/npm-cache", "mode": "contents", "risk": "safe", "note": ""},
     {"name": "Windows Temp", "path": "%SystemRoot%/Temp", "mode": "contents", "risk": "safe", "note": "需管理员"},
     {"name": "Windows Prefetch", "path": "%SystemRoot%/Prefetch", "mode": "contents", "risk": "safe", "note": "需管理员"},
     {"name": "Windows 升级残留 $WinREAgent", "path": "C:/$WinREAgent", "mode": "contents", "risk": "safe", "note": "确定系统能正常启动后删"},

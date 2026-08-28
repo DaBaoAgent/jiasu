@@ -16,9 +16,10 @@
       winget 也卸不掉时给出注册表残留清理指引（见 SKILL.md 陷阱 #11）。
 """
 import os
+import re
 import sys
 import json
-import shutil
+import shlex
 import subprocess
 
 IDLE_DEFAULT = 60
@@ -77,6 +78,43 @@ def list_idle(apps, idle):
     print('  python uninstall_by_audit.py --apply "TIM"   # 按名称卸载')
 
 
+def parse_uninstall_string(us):
+    """解析 Windows UninstallString 为 argv 列表。
+
+    典型形态: '"C:\\Program Files (x86)\\X\\uninst.exe" /S'（路径带引号、含空格）
+    或 'MsiExec.exe /X{...}'（无引号无空格）。
+    Windows 上 shlex 的 posix=False 不剥引号、且无引号路径按空格拆碎，
+    所以第一段 exe 用正则提取（引号包裹或非空格串），参数再交给 shlex。
+    """
+    us = us.strip()
+    m = re.match(r'^"([^"]+)"(?:\s+(.*))?$|^(\S+)(?:\s+(.*))?$', us)
+    if not m:
+        return []
+    exe = m.group(1) or m.group(3)
+    rest = (m.group(2) or m.group(4) or "").strip()
+    parts = [exe]
+    if rest:
+        try:
+            parts += shlex.split(rest, posix=False)
+        except ValueError:
+            parts += rest.split()
+    return parts
+
+
+def try_winget(a):
+    """优先 winget --silent 卸载；找不到包时给出手动清理指引。返回是否成功。"""
+    wid = winget_id(a["Name"])
+    if wid:
+        print(f"  winget uninstall --id {wid}")
+        rc, out = run(["winget", "uninstall", "--id", wid, "--silent",
+                       "--accept-source-agreements", "--disable-interactivity"])
+        print(f"  winget exit={rc}: {out.strip()[:200]}")
+        return rc == 0
+    print("  winget 未找到该包。国产无卸载程序的软件需手动: "
+          "删 Program Files 目录 + 清 Uninstall 注册表键（见 SKILL.md 陷阱 #11）")
+    return False
+
+
 def apply_uninstall(apps, name, force_winget=False):
     matches = [a for a in apps if name.lower() in a["Name"].lower()]
     if not matches:
@@ -85,24 +123,24 @@ def apply_uninstall(apps, name, force_winget=False):
     for a in matches:
         print(f"\n>>> 卸载: {a['Name']} (闲置 {a.get('DaysIdle')}d)")
         ok = False
-        us = (a.get("UninstallString") or "").strip().strip('"')
+        us = (a.get("UninstallString") or "").strip()
         if us and not force_winget:
-            print(f"  用注册表卸载命令: {us}")
-            rc, out = run(us.split(" ")[0:1] + [us.split(" ", 1)[1]] if " " in us else [us])
-            # 卸载器多为 GUI，直接启动即可；静默参数各软件不同，无法统一
-            print(f"  已启动卸载器 (exit={rc})。GUI 窗口出现后按提示完成。")
-            ok = True
-        else:
-            wid = winget_id(a["Name"])
-            if wid:
-                print(f"  winget uninstall --id {wid}")
-                rc, out = run(["winget", "uninstall", "--id", wid, "--silent",
-                               "--accept-source-agreements", "--disable-interactivity"])
-                print(f"  winget exit={rc}: {out.strip()[:200]}")
-                ok = rc == 0
+            # UninstallString 常为 '"C:\Program Files\X\uninstall.exe" /S' 带引号，
+            # 用 parse_uninstall_string 解析（正则提取 exe + shlex 拆参数），
+            # 直接 split(' ') 会把含空格路径拆坏
+            parts = parse_uninstall_string(us)
+            print(f"  注册表卸载命令: {us}")
+            if parts and os.path.isfile(parts[0]):
+                try:
+                    subprocess.Popen(parts)
+                    print("  ✓ 已启动卸载器（GUI 按提示完成；静默参数各软件不同，无法统一）")
+                    ok = True
+                except OSError as e:
+                    print(f"  ✗ 启动失败: {e}，改走 winget")
             else:
-                print("  winget 未找到该包。国产无卸载程序的软件需手动: "
-                      "删 Program Files 目录 + 清 Uninstall 注册表键（见 SKILL.md 陷阱 #11）")
+                print(f"  ✗ 卸载器路径无效: {parts[0] if parts else us!r}，改走 winget")
+        if not ok:
+            ok = try_winget(a)
         if ok:
             print("  ✓ 处理完成")
 

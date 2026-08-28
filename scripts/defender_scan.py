@@ -11,9 +11,11 @@
 """
 import subprocess, sys, time, os
 
+import _common
+
 PS = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
 MPCMD = r"C:\Program Files\Windows Defender\MpCmdRun.exe"
-LOG = r"C:\Users\xxx13\defender_scan_result.txt"
+LOG = os.path.join(os.environ.get("USERPROFILE", ""), "defender_scan_result.txt")
 
 
 def run_ps(cmd: str, timeout: int = 300) -> str:
@@ -22,24 +24,6 @@ def run_ps(cmd: str, timeout: int = 300) -> str:
         return r.stdout.decode("utf-8", errors="replace") + r.stderr.decode("utf-8", errors="replace")
     except subprocess.TimeoutExpired:
         return "TIMEOUT"
-
-
-def run_elevated_ps(script_body: str, timeout: int = 900) -> None:
-    """把操作写进临时 ps1 提权执行（结果落 LOG，本机 ConsentPromptBehaviorAdmin=0 静默）"""
-    ps1 = os.path.join(os.environ["USERPROFILE"], "_defender_op.ps1")
-    with open(ps1, "w", encoding="utf-8-sig") as f:
-        f.write(script_body)
-    subprocess.run(PS + [
-        f"Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File {ps1}'"
-    ], timeout=30)
-    # 等结果文件
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if os.path.exists(LOG):
-            with open(LOG, encoding="utf-8-sig") as f:
-                return f.read()
-        time.sleep(5)
-    return "TIMEOUT waiting result"
 
 
 def status():
@@ -66,13 +50,13 @@ def status():
 
 def update():
     body = '"=== sig update $(Get-Date) ===" | Out-File %s -Encoding UTF8; try { Update-MpSignature | Out-Null; "[OK]" | Out-File %s -Append -Encoding UTF8 } catch { "[ERR] $($_.Exception.Message)" | Out-File %s -Append -Encoding UTF8 }' % (LOG, LOG, LOG)
-    print(run_elevated_ps(body, 600))
+    print(_common.run_elevated_ps(body, LOG, 600))
 
 
 def scan(scan_type: int, label: str):
     # 扫描结果也走 MpCmdRun 的 -DisableRemediation 否？不，正常查杀即可
     body = f'"[start {label}]" | Out-File {LOG} -Encoding UTF8; & "{MPCMD}" -Scan -ScanType {scan_type} 2>&1 | Out-File {LOG} -Append -Encoding UTF8; "[done {label}]" | Out-File {LOG} -Append -Encoding UTF8'
-    print(run_elevated_ps(body, 7200))
+    print(_common.run_elevated_ps(body, LOG, 7200))
 
 
 def threats():
