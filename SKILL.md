@@ -801,7 +801,7 @@ Start-Process cmd -Verb RunAs -ArgumentList '/c rd /s /q "C:\Program Files\XXXX"
 - `scripts/_common.py` — 公共工具（dir_size/free_gb/JUNCTION_NAMES/rules.json 匹配/提权执行），各脚本共用，勿重复实现
 - `scripts/health_check.py` — 只读全面体检（磁盘/安全/启动项/服务/还原/缓存），中文报告 + [WARN] 异常标出，cron 与手动复用
 - `scripts/defender_scan.py` — 安全卫士封装：Defender 状态/签名更新/快速查杀/全盘查杀/隔离区/恢复向导（提权模式，本机免 UAC 静默）
-- `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：**默认 = rules.json 规则库（safe/contents/file/cef_cache 项）+ 内置复杂逻辑**（剪映 Projects 检查/浏览器 profile 展开/微信QQ 递归/Hermes/Codex 特殊项），测量→安全删除→逐项报告释放 GB；`--rules` 只跑规则库（调试用）；新增缓存规则只改 rules.json 自动生效
+- `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：**默认 = rules.json 规则库（safe/contents/file/cef_cache 项）+ 内置复杂逻辑**（剪映 Projects 检查/浏览器 profile 展开/微信QQ 递归/Hermes/Codex 特殊项），测量→安全删除→逐项报告释放 GB；`--rules` 只跑规则库（调试用）；新增缓存规则只改 rules.json 自动生效。**2026-08-29 实战修复**：`c_free_before_gb` 改为脚本开头测量（原版结尾测导致 before≈after 假象）+ 新增 `c_free_after_gb` 字段；回收站清空（SHEmptyRecycleBinW）计入结果但释放量记 -1 不并入 total_freed（重构时曾被弄丢）
 - `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction；`--rules` 附加规则库匹配
 - `scripts/rules.json` — 清理规则库（Dism++ 式数据化，**单一事实源**）：40+ 条已知缓存规则，路径占位符/mode/risk 字段；`deep_scan.py --rules` 匹配、`health_check.py` 列出、`daily_clean_no_uac.py` 自动清理，新增软件只改此文件
 - `scripts/backup_revert.py` — 可逆性保障：修改前 reg export + 服务启动类型快照 + 生成 undo.ps1 一键回滚（revert/ 已 gitignore）
