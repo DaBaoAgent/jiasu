@@ -19,6 +19,7 @@ import stat
 import re
 import sys
 import json
+import ctypes
 
 import _common
 
@@ -26,6 +27,9 @@ USERPROFILE = os.environ.get('USERPROFILE', 'C:/Users/xxx13')
 LOCALAPPDATA = os.environ.get('LOCALAPPDATA', USERPROFILE + '/AppData/Local')
 APPDATA = os.environ.get('APPDATA', USERPROFILE + '/AppData/Roaming')
 TEMP = os.environ.get('TEMP', LOCALAPPDATA + '/Temp')
+
+# 清理前可用空间（脚本开头测量；结尾测的是 after，2026-08-29 合并本地实战修复）
+c_free_start_gb = round(_common.free_gb('C:\\'), 3)
 
 
 def rm_contents(path):
@@ -256,7 +260,21 @@ if not RULES_ONLY:
             if os.path.isfile(p):
                 report(".codex/" + f, p, 'file')
 
+# ---------- 回收站（SHEmptyRecycleBinW，API 不返回释放量，记 -1 不计入总量）----------
+
+def empty_recycle_bin(drive='C:'):
+    try:
+        # SHERB_NOCONFIRMATION|SHERB_NOPROGRESSUI|SHERB_NOSOUND = 0x7
+        return ctypes.windll.shell32.SHEmptyRecycleBinW(None, drive, 0x7) == 0
+    except Exception:
+        return False
+
+if empty_recycle_bin('C:'):
+    results.append({'name': '回收站(C:)', 'before_gb': -1, 'freed_gb': -1, 'skipped': 0})
+    # before_gb=-1 表示已清空但大小未知（API 不返回释放量），汇总时不计入总量
+
 # ---------- 汇总 ----------
-total_freed = sum(r['freed_gb'] for r in results)
+total_freed = sum(r['freed_gb'] for r in results if r['freed_gb'] > 0)
 print(json.dumps({'results': results, 'total_freed_gb': round(total_freed, 3),
-                  'c_free_before_gb': round(_common.free_gb('C:\\'), 3)}, ensure_ascii=False, indent=1))
+                  'c_free_before_gb': c_free_start_gb,
+                  'c_free_after_gb': round(_common.free_gb('C:\\'), 3)}, ensure_ascii=False, indent=1))
