@@ -24,15 +24,18 @@ RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules.jso
 
 
 def scan_children(base, min_gb=0.5):
-    """列出 base 下 ≥min_gb 的直接子目录（跳过 junction），按大小降序。"""
+    """列出 base 下 ≥min_gb 的直接子目录（跳过 junction/reparse），按大小降序。"""
     results = []
     try:
         with os.scandir(base) as it:
             for e in it:
-                if e.is_dir(follow_symlinks=False) and e.name not in _common.JUNCTION_NAMES:
-                    sz = _common.dir_size(e.path)
-                    if sz / _common.GB >= min_gb:
-                        results.append((sz, e.path))
+                if not e.is_dir(follow_symlinks=False):
+                    continue
+                if e.name in _common.JUNCTION_NAMES or _common.is_reparse(e.path):
+                    continue
+                sz = _common.dir_size(e.path)
+                if sz / _common.GB >= min_gb:
+                    results.append((sz, e.path))
     except (OSError, PermissionError):
         pass
     results.sort(reverse=True)

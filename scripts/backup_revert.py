@@ -22,6 +22,8 @@ import shutil
 import subprocess
 from datetime import datetime
 
+import _common
+
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REVERT_ROOT = os.path.join(SKILL_DIR, "revert")
 
@@ -55,10 +57,10 @@ START_TYPE_NAMES = {2: "auto", 3: "demand", 4: "disabled"}
 
 
 def run(cmd):
-    """运行命令，返回 (exit_code, stdout_text)。GBK 输出转 UTF-8。"""
+    """运行命令，返回 (exit_code, stdout_text)。控制台编码自适应（UTF-8/GBK）。"""
     try:
         p = subprocess.run(cmd, capture_output=True, timeout=60)
-        out = p.stdout.decode("gbk", errors="replace") + p.stderr.decode("gbk", errors="replace")
+        out = _common.decode_console(p.stdout + p.stderr)
         return p.returncode, out
     except Exception as e:
         return -1, str(e)
@@ -111,7 +113,7 @@ def backup():
             undo.append(f'sc config {svc} start= {stype}')
     undo.append("")
     undo.append("Write-Host '回滚完成。建议重启一次系统。'")
-    with open(os.path.join(bdir, f"undo_{ts}.ps1"), "w", encoding="utf-8") as f:
+    with open(os.path.join(bdir, f"undo_{ts}.ps1"), "w", encoding="utf-8-sig") as f:
         f.write("\n".join(undo))
 
     manifest = {
@@ -122,6 +124,14 @@ def backup():
     }
     with open(os.path.join(bdir, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)
+
+    # 红线：全部键导出失败（或一个服务都没记录到）= 快照不可信，删目录报警，
+    # 不要在无快照的情况下继续做系统修改
+    if not exported and not svc_lines:
+        shutil.rmtree(bdir, ignore_errors=True)
+        print("[FAIL] 快照全失败：注册表键 0 个导出、服务 0 个记录。")
+        print("       按红线不继续修改系统，先排查（权限/命令环境）后再试。")
+        sys.exit(2)
 
     print(f"快照已建: {bdir}")
     print(f"  注册表键导出 {len(exported)}/{len(REG_KEYS)}，服务记录 {len(svc_lines)}/{len(SERVICES)}")

@@ -21,7 +21,8 @@ LOG = os.path.join(os.environ.get("USERPROFILE", ""), "defender_scan_result.txt"
 def run_ps(cmd: str, timeout: int = 300) -> str:
     try:
         r = subprocess.run(PS + [cmd], capture_output=True, timeout=timeout)
-        return r.stdout.decode("utf-8", errors="replace") + r.stderr.decode("utf-8", errors="replace")
+        # PS 5.1 控制台默认 GBK；本机部分宿主输出 UTF-8，统一自适应解码
+        return _common.decode_console(r.stdout + r.stderr)
     except subprocess.TimeoutExpired:
         return "TIMEOUT"
 
@@ -49,14 +50,22 @@ def status():
 
 
 def update():
-    body = '"=== sig update $(Get-Date) ===" | Out-File %s -Encoding UTF8; try { Update-MpSignature | Out-Null; "[OK]" | Out-File %s -Append -Encoding UTF8 } catch { "[ERR] $($_.Exception.Message)" | Out-File %s -Append -Encoding UTF8 }' % (LOG, LOG, LOG)
-    print(_common.run_elevated_ps(body, LOG, 600))
+    # ⚠ 竞态坑（已修）：提权脚本先写标题行、再跑 Update-MpSignature（几分钟）、
+    # 最后写 [DONE]。run_elevated_ps 必须等 [DONE] 出现才算完成，
+    # 否则结果文件一出现（只有标题）就被当成功返回，实际签名还没更新。
+    body = ('"=== sig update $(Get-Date) ===" | Out-File %s -Encoding UTF8; '
+            'try { Update-MpSignature | Out-Null; "[OK]`n[DONE]" | Out-File %s -Append -Encoding UTF8 } '
+            'catch { "[ERR] $($_.Exception.Message)`n[DONE]" | Out-File %s -Append -Encoding UTF8 }'
+            % (LOG, LOG, LOG))
+    print(_common.run_elevated_ps(body, LOG, 600, done_marker="[DONE]"))
 
 
 def scan(scan_type: int, label: str):
-    # 扫描结果也走 MpCmdRun 的 -DisableRemediation 否？不，正常查杀即可
-    body = f'"[start {label}]" | Out-File {LOG} -Encoding UTF8; & "{MPCMD}" -Scan -ScanType {scan_type} 2>&1 | Out-File {LOG} -Append -Encoding UTF8; "[done {label}]" | Out-File {LOG} -Append -Encoding UTF8'
-    print(_common.run_elevated_ps(body, LOG, 7200))
+    # MpCmdRun 扫描（quick 5-15 分钟 / full 1-3 小时），写完 [done] 标记才算完成
+    body = (f'"[start {label}]" | Out-File {LOG} -Encoding UTF8; '
+            f'& "{MPCMD}" -Scan -ScanType {scan_type} 2>&1 | Out-File {LOG} -Append -Encoding UTF8; '
+            f'"[done {label}]" | Out-File {LOG} -Append -Encoding UTF8')
+    print(_common.run_elevated_ps(body, LOG, 7200, done_marker=f"[done {label}]"))
 
 
 def threats():

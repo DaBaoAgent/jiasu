@@ -22,13 +22,13 @@ def re_search_percent(line):
 
 
 def ps(cmd, timeout=60):
-    """Run a PowerShell query, return decoded text (GBK-safe)."""
+    """Run a PowerShell query, return decoded text (编码自适应：本机实测 UTF-8/GBK 都有)."""
     try:
         r = subprocess.run(
             ["powershell", "-NoProfile", "-Command", cmd],
             capture_output=True, timeout=timeout,
         )
-        return r.stdout.decode("gbk", errors="replace").strip()
+        return _common.decode_console(r.stdout + r.stderr).strip()
     except Exception as e:
         return "[ERR] {}".format(e)
 
@@ -72,14 +72,18 @@ print("  Defender: " + mp)
 av = ps("Get-CimInstance -Namespace root\\SecurityCenter2 -ClassName AntiVirusProduct | ForEach-Object { $_.displayName }")
 avs = [x for x in av.splitlines() if x.strip()]
 print("  杀软: " + (" / ".join(avs) if avs else "无"))
-if "Passive" in mp or "RealTime: True" in mp:
+if "[ERR]" in mp:
+    INFO.append("Defender 状态查询失败（不算异常）: " + mp)
+elif "Passive" in mp or "RealTime: True" in mp:
     OK.append("Defender/杀软: " + mp + " | " + " / ".join(avs))
 else:
     WARN.append("杀软实时保护未开启: " + mp)
 
 fw = ps("(Get-NetFirewallProfile | Where-Object {$_.Enabled -eq $false} | Measure-Object).Count")
 print("  防火墙关闭的配置文件数: " + fw)
-if fw.strip() == "0":
+if "[ERR]" in fw or not fw.strip():
+    INFO.append("防火墙状态未知: " + fw.strip())  # 查询失败≠防火墙被关，别误报 WARN
+elif fw.strip() == "0":
     OK.append("防火墙: 全开")
 else:
     WARN.append("防火墙有配置文件关闭: " + fw)
@@ -142,8 +146,9 @@ if shown == 0:
 
 # ---------- 7b. 红线提示（仅提示不要删）----------
 print("\n===== 7b. 红线提示（勿删） =====")
-for name, path in [("codex-runtimes", r"C:\Users\xxx13\.cache\codex-runtimes"),
-                   ("codex sessions", r"C:\Users\xxx13\.codex\sessions")]:
+_up = os.environ.get("USERPROFILE", "")
+for name, path in [("codex-runtimes", os.path.join(_up, ".cache", "codex-runtimes")),
+                   ("codex sessions", os.path.join(_up, ".codex", "sessions"))]:
     sz = _common.dir_size(path) / _common.GB if os.path.exists(path) else -1
     if sz >= 0.5:
         print("  [{}] {:.2f}G —— venv 基底/会话历史，勿删".format(name, sz))

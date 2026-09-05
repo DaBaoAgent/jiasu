@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""软件使用审计 → winget 批量卸载（winutil Install tab 同款思路，默认 dry-run）。
+"""软件使用审计 → 按名单卸载（winutil Install tab 同款思路，默认 dry-run）。
 
 前置: 先跑 audit_unused_software.ps1 -JsonOut 生成 _app_analysis.json
       （字段: Name/Location/UninstallString/LastActivity/DaysIdle）
@@ -12,8 +12,9 @@
     python uninstall_by_audit.py --apply "TIM"          # 真正卸载（注册表 UninstallString 优先）
     python uninstall_by_audit.py --apply "TIM" --winget # 强制走 winget
 
-安全: 默认只列不卸；--apply 才执行。无 UninstallString 的软件（如悟空）走 winget，
-      winget 也卸不掉时给出注册表残留清理指引（见 SKILL.md 陷阱 #11）。
+安全（硬红线）: 默认只列不卸；--apply 才执行；审计结果只报告，卸载仅在用户
+看完报告明确点名时进行，永不批量/自动。--apply 匹配到多个应用时只打印清单
+要求确认（--yes 才继续），防止子串误匹配卸错软件。
 """
 import os
 import re
@@ -22,6 +23,8 @@ import json
 import shlex
 import subprocess
 
+import _common
+
 IDLE_DEFAULT = 60
 SYSTEM_HINTS = ["Edge", "OneDrive"]  # 误判高发项，仅提示不自动卸
 
@@ -29,7 +32,7 @@ SYSTEM_HINTS = ["Edge", "OneDrive"]  # 误判高发项，仅提示不自动卸
 def run(cmd):
     try:
         p = subprocess.run(cmd, capture_output=True, timeout=120)
-        out = (p.stdout + p.stderr).decode("gbk", errors="replace")
+        out = _common.decode_console(p.stdout + p.stderr)
         return p.returncode, out
     except Exception as e:
         return -1, str(e)
@@ -45,19 +48,26 @@ def load_apps(path="_app_analysis.json"):
 
 
 def winget_id(name):
-    """查询应用对应的 winget 包 ID，找不到返回 None"""
+    """查询应用对应的 winget 包 ID，找不到返回 None。
+
+    坑（已修）：旧版对解析不出精确名称匹配的行"退化拿第二列"——会把
+    表头/无关应用的 Id 当结果，导致 winget uninstall 卸掉错误的包。
+    现在只接受"输出行以应用名开头"的行，取名称后紧跟的 Id 列。
+    """
     rc, out = run(["winget", "list", "--name", name, "--accept-source-agreements"])
     if rc != 0:
         return None
-    for line in out.splitlines()[2:]:  # 跳过表头
-        parts = line.split()
-        if len(parts) >= 2 and parts[0].lower() == name.lower():
-            return parts[1]
-    # winget list 输出列宽不定，退化：拿第二列
-    for line in out.splitlines()[2:]:
-        parts = line.split()
-        if len(parts) >= 3:
-            return parts[1]
+    low_name = name.lower()
+    for line in out.splitlines():
+        # 跳过表头与分隔线
+        s = line.strip()
+        if not s or set(s) <= set("- "):
+            continue
+        if s.lower().startswith(low_name):
+            rest = s[len(name):].strip()
+            parts = rest.split()
+            if parts:
+                return parts[0]  # Id 列紧跟名称列
     return None
 
 
@@ -68,10 +78,11 @@ def list_idle(apps, idle):
         print("（无）")
         return
     for a in sorted(idle_apps, key=lambda x: -x.get("DaysIdle", 0)):
+        name = a.get("Name", "?")
         flag = ""
-        if any(h in a["Name"] for h in SYSTEM_HINTS):
+        if any(h in name for h in SYSTEM_HINTS):
             flag = "  [系统组件,慎卸]"
-        print(f"{a.get('DaysIdle'):>5}d  {a['Name']}{flag}")
+        print(f"{a.get('DaysIdle'):>5}d  {name}{flag}")
         if a.get("Location"):
             print(f"        {a['Location']}")
     print("\n卸载命令示例:")
@@ -103,7 +114,7 @@ def parse_uninstall_string(us):
 
 def try_winget(a):
     """优先 winget --silent 卸载；找不到包时给出手动清理指引。返回是否成功。"""
-    wid = winget_id(a["Name"])
+    wid = winget_id(a.get("Name", ""))
     if wid:
         print(f"  winget uninstall --id {wid}")
         rc, out = run(["winget", "uninstall", "--id", wid, "--silent",
@@ -115,30 +126,41 @@ def try_winget(a):
     return False
 
 
-def apply_uninstall(apps, name, force_winget=False):
-    matches = [a for a in apps if name.lower() in a["Name"].lower()]
+def apply_uninstall(apps, name, force_winget=False, assume_yes=False):
+    matches = [a for a in apps if name.lower() in (a.get("Name") or "").lower()]
     if not matches:
         print(f"审计 JSON 中找不到匹配 '{name}' 的应用")
         sys.exit(1)
+    print("匹配到以下应用:")
     for a in matches:
-        print(f"\n>>> 卸载: {a['Name']} (闲置 {a.get('DaysIdle')}d)")
+        print(f"  - {a.get('Name')} (闲置 {a.get('DaysIdle')}d)")
+    if len(matches) > 1 and not assume_yes:
+        print("⚠ 子串匹配到多个应用。确认名单无误后加 --yes 重跑。")
+        sys.exit(1)
+    for a in matches:
+        print(f"\n>>> 卸载: {a.get('Name')} (闲置 {a.get('DaysIdle')}d)")
         ok = False
         us = (a.get("UninstallString") or "").strip()
         if us and not force_winget:
-            # UninstallString 常为 '"C:\Program Files\X\uninstall.exe" /S' 带引号，
-            # 用 parse_uninstall_string 解析（正则提取 exe + shlex 拆参数），
-            # 直接 split(' ') 会把含空格路径拆坏
             parts = parse_uninstall_string(us)
             print(f"  注册表卸载命令: {us}")
-            if parts and os.path.isfile(parts[0]):
-                try:
-                    subprocess.Popen(parts)
-                    print("  ✓ 已启动卸载器（GUI 按提示完成；静默参数各软件不同，无法统一）")
-                    ok = True
-                except OSError as e:
-                    print(f"  ✗ 启动失败: {e}，改走 winget")
-            else:
-                print(f"  ✗ 卸载器路径无效: {parts[0] if parts else us!r}，改走 winget")
+            if parts:
+                exe = parts[0]
+                is_msi = os.path.basename(exe).lower() in ("msiexec.exe",)
+                if os.path.isfile(exe) or is_msi:
+                    try:
+                        # Popen 不等待：msiexec /X 和 GUI 卸载器都可能长时间交互/弹窗，
+                        # 阻塞等待会把调用方（agent/cron）挂死
+                        proc = subprocess.Popen(parts)
+                        if is_msi:
+                            print(f"  ✓ 已启动 msiexec (PID {proc.pid})，卸载完成后自行退出")
+                        else:
+                            print("  ✓ 已启动卸载器（GUI 按提示完成；静默参数各软件不同，无法统一）")
+                        ok = True
+                    except OSError as e:
+                        print(f"  ✗ 启动失败: {e}，改走 winget")
+                else:
+                    print(f"  ✗ 卸载器路径无效: {exe!r}，改走 winget")
         if not ok:
             ok = try_winget(a)
         if ok:
@@ -146,11 +168,12 @@ def apply_uninstall(apps, name, force_winget=False):
 
 
 def main():
-    args = [a for a in sys.argv[1:]]
+    args = sys.argv[1:]
     jpath = "_app_analysis.json"
     idle = IDLE_DEFAULT
     apply_name = None
     force_winget = False
+    assume_yes = "--yes" in args
     if "--json" in args:
         jpath = args[args.index("--json") + 1]
     if "--idle" in args:
@@ -161,7 +184,7 @@ def main():
 
     apps = load_apps(jpath)
     if apply_name:
-        apply_uninstall(apps, apply_name, force_winget)
+        apply_uninstall(apps, apply_name, force_winget, assume_yes)
     else:
         list_idle(apps, idle)
 

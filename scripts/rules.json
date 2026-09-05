@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "comment": "jiasu 清理规则库（Dism++ 式数据化设计，单一事实源）。deep_scan.py --rules 自动匹配；health_check.py 列出可清项；daily_clean_no_uac.py 默认清理 risk=safe 且 mode in (contents/file/cef_cache) 的项（keep_latest/moderate 跳过）。占位符: %USERPROFILE% %LOCALAPPDATA% %APPDATA% %TEMP% %SystemRoot% %ProgramData%。新增软件缓存规则只改本文件，扫描/体检/清理三处自动生效，不用动代码。",
+  "comment": "jiasu 清理规则库（Dism++ 式数据化设计，单一事实源）。deep_scan.py --rules 自动匹配；health_check.py 列出可清项；daily_clean_no_uac.py 默认清理 risk=safe 且 mode in (contents/file/cef_cache) 的项（keep_latest/moderate 跳过）。占位符: %USERPROFILE% %LOCALAPPDATA% %APPDATA% %TEMP% %SystemRoot% %ProgramData%。可选字段 min_age_days: contents 清理时跳过 mtime 更新的文件（Temp 防误删活跃文件）。新增软件缓存规则只改本文件，扫描/体检/清理三处自动生效，不用动代码。【硬红线 2026-09-05】永不删软件本体/版本目录/已安装包——keep_latest 与 moderate 规则一律只扫描报告，清理脚本不执行；只能清可再生纯缓存，不得影响任何软件的使用。",
   "rules": [
     {"name": "剪映 recognize 语音识别缓存", "path": "%LOCALAPPDATA%/JianyingPro/User Data/Cache/recognize", "mode": "contents", "risk": "safe", "note": "语音识别缓存，常 20-30GB，按需自动重建"},
     {"name": "剪映 audioWave 波形缓存", "path": "%LOCALAPPDATA%/JianyingPro/User Data/Cache/audioWave", "mode": "contents", "risk": "safe", "note": "音频波形缓存"},
@@ -19,7 +19,7 @@
     {"name": "360安全 SDK 缓存", "path": "%APPDATA%/secoresdk/360se6", "mode": "contents", "risk": "safe", "note": "0.3-0.5GB"},
     {"name": "ima.copilot reshub", "path": "%APPDATA%/ima.copilot/User Data/reshub", "mode": "contents", "risk": "safe", "note": ""},
     {"name": "ima.copilot 组件缓存", "path": "%APPDATA%/ima.copilot/User Data/component_crx_cache", "mode": "contents", "risk": "safe", "note": ""},
-    {"name": "npm 全局包", "path": "%APPDATA%/npm/node_modules", "mode": "contents", "risk": "moderate", "note": "全局包，删除后需重装（npm ls -g 先确认）"},
+    {"name": "npm 全局包", "path": "%APPDATA%/npm/node_modules", "mode": "contents", "risk": "moderate", "note": "已安装的全局包=软件本体，清理脚本永不自动删；如需重置请人工确认"},
     {"name": "ms-playwright 旧版浏览器", "path": "%USERPROFILE%/AppData/Local/ms-playwright", "mode": "keep_latest", "group": "prefix", "risk": "safe", "note": "按 chromium/chromium_headless_shell/firefox/webkit/ffmpeg 前缀分组各留最新（分组坑见 SKILL.md）"},
     {"name": "QQ电脑管家 radiumv3", "path": "%APPDATA%/Tencent/QQPCMgr/radiumv3", "mode": "contents", "risk": "safe", "note": "0.3-1GB；SysOpt.ini/sysdeepopt.ini 不可删"},
     {"name": "QQ电脑管家 beacon", "path": "%APPDATA%/Tencent/QQPCMgr/beacon", "mode": "contents", "risk": "safe", "note": ""},
@@ -48,7 +48,7 @@
     {"name": "Windows Update 下载缓存", "path": "%SystemRoot%/SoftwareDistribution/Download", "mode": "contents", "risk": "safe", "note": "需先停 wuauserv"},
     {"name": "崩溃转储", "path": "%LOCALAPPDATA%/CrashDumps", "mode": "contents", "risk": "safe", "note": ""},
     {"name": "Windows 错误报告", "path": "%LOCALAPPDATA%/Microsoft/Windows/WER", "mode": "contents", "risk": "safe", "note": ""},
-    {"name": "用户 Temp", "path": "%TEMP%", "mode": "contents", "risk": "safe", "note": ""},
+    {"name": "用户 Temp", "path": "%TEMP%", "mode": "contents", "risk": "safe", "min_age_days": 1, "note": "mtime 不足 1 天的文件跳过（可能在用，winutil/Sophia 同款 Age 过滤）"},
     {"name": "Hermes 浏览器截图", "path": "%USERPROFILE%/.hermes/logs/screenshots", "mode": "contents", "risk": "safe", "note": ""},
     {"name": "Hermes tmp", "path": "%USERPROFILE%/.hermes/tmp", "mode": "contents", "risk": "safe", "note": ""},
     {"name": "Hermes 终端缓存", "path": "%USERPROFILE%/.hermes/cache/terminal", "mode": "contents", "risk": "safe", "note": ""}

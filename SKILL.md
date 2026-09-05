@@ -14,6 +14,17 @@ metadata:
 
 触发条件：用户说**清理电脑 / 加速电脑 / 清理C盘 / 释放空间 / 电脑卡 / 电脑安全 / 电脑加固**等，自动按本流程执行。整合磁盘深度清理（原 windows-system-maintenance）+ 腾讯电脑管家式开机加速四件套（启动项延迟/服务禁用/DNS优化/内存整理）+ 社区优质项目方法论（Sophia 定时清理、Win11Debloat 去预装、optimizerDuck 可逆优化、WindowsClear junction 迁移、winutil 修复工具集、hellzerg optimizer 网络/锁句柄工具、Dism++ 规则库、dupeGuru 重复文件）。逆向依据见 `references/qqpcmgr-feature-map.md`，社区项目调研见 `references/windows-optimization-projects.md`。
 
+## 硬红线（2026-09-05 用户确认，最高优先级，凌驾于本文其余所有章节）
+
+**jiasu 永远不能删除用户的软件，不能对任何软件的正常使用产生影响。**
+
+1. **不删软件本体**：不卸载软件、不删 Program Files / 版本目录（剪映 Apps、美图、WPS、ms-playwright 等旧版本目录只报告占用，提示用户手动处理）、不删已安装的包（npm 全局包、pip 站内包、Python venv）。
+2. **不动用户数据**：微信/QQ 的 File（聊天接收文件）、msg/ 子树、浏览器书签密码、剪映 Projects、各软件的数据库/配置/会话，一律不碰。
+3. **不改软件运行状态**：默认不杀进程、不禁用/停改第三方软件服务、不删启动项、不卸载/降级任何软件的更新服务——这些"开机加速"动作只作为**可选菜单**呈现，必须用户逐项明确批准后才执行，执行前先跑 `backup_revert.py backup` 建快照。
+4. **只清可再生纯缓存**：允许自动清理的只有"删了软件能自己重建"的缓存（pip/npm/uv 缓存、TEMP、浏览器 Cache 子目录、剪映 Cache 的 recognize/audioWave 等、CrashDumps/WER、系统升级残留）。
+5. **软件更新只手动**：`winget upgrade --all` 不进任何自动流程，只在用户明确要求更新时执行。
+6. 判断拿不准"是缓存还是数据/软件"→ 一律不删，报告给用户决定。
+
 ## 可逆性保障（2026-08-24 新增，任何修改前先做）
 
 所有修改类操作（注册表/服务/启动项）执行前先建快照（optimizerDuck revert 机制同款）：
@@ -115,10 +126,12 @@ netstat -ano | findstr LISTENING
 ```
 开放了非预期端口（如 445/3389 对外）→ 检查对应程序，用 `netsh advfirewall firewall delete rule name=X` 收紧（详见 windows-admin-ops）。
 
-### 4. 软件管家（winget，系统自带）
+### 4. 软件管家（winget，系统自带——只手动，永不自动化）
+
+> ⚠ 硬红线第 5 条：winget 更新/卸载**永不**进 cron/自动流程。仅用户当次明确要求时执行。
 
 ```bash
-winget upgrade --all --accept-source-agreements --accept-package-agreements --disable-interactivity   # 批量更新
+winget upgrade --all --accept-source-agreements --accept-package-agreements --disable-interactivity   # 批量更新（仅手动）
 winget list      # 已装清单（本机 97 个）
 winget search <name>   # 搜索
 ```
@@ -148,7 +161,9 @@ Checkpoint-Computer -Description "jiasu-before-cleanup" -RestorePointType MODIFY
 ```
 或 `SystemPropertiesProtection` 手动创建。然后按风险从低到高执行。
 
-### 1. 预装 AppX bloatware 移除（Safe，可逆）
+### 1. 预装 AppX bloatware 移除（可选菜单，须用户逐项批准；红线内默认不做）
+
+> ⚠ 硬红线第 1/3 条：卸载预装应用属于"删软件"，**默认不执行**。仅当用户明确点名要移除某几个应用时才做，且可从 Store 重装的才列入候选。以下命令仅作参考。
 ```powershell
 # 列出所有预装应用
 Get-AppxPackage | Select-Object Name, PackageFullName
@@ -234,7 +249,7 @@ Get-MpPreference | Select-Object AttackSurfaceReductionRules_Ids
 python scripts/deep_scan.py --rules   # 广扫 + 自动匹配 rules.json 已知缓存项（占用/风险/说明）
 ```
 
-规则库 `scripts/rules.json` 已覆盖：剪映全部缓存子目录/旧版本、美图/WPS 旧版本、微信小程序/WebView、腾讯会议动态资源、QQPCMgr、ima.copilot、ms-playwright 旧版、Codex、pip/uv/npm、系统残留目录、WU 缓存、CrashDumps/WER、Hermes 自有缓存等 40+ 条。**rules.json 是清理清单的唯一事实源**：新增软件缓存规则只改 rules.json，`deep_scan.py --rules`（扫描）、`health_check.py`（体检列出）、`daily_clean_no_uac.py`（每日清理）三处自动生效，不用改代码（路径支持 `%LOCALAPPDATA%`/`%APPDATA%`/`%USERPROFILE%`/`%SystemRoot%`/`%TEMP%` 占位符，mode 支持 contents/file/keep_latest/cef_cache，risk 分 safe/moderate）。
+规则库 `scripts/rules.json` 已覆盖：剪映全部缓存子目录/旧版本、美图/WPS 旧版本、微信小程序/WebView、腾讯会议动态资源、QQPCMgr、ima.copilot、ms-playwright 旧版、Codex、pip/uv/npm、系统残留目录、WU 缓存、CrashDumps/WER、Hermes 自有缓存等 40+ 条。**rules.json 是清理清单的唯一事实源**：新增软件缓存规则只改 rules.json，`deep_scan.py --rules`（扫描）、`health_check.py`（体检列出）、`daily_clean_no_uac.py`（每日清理）三处自动生效，不用改代码（路径支持 `%LOCALAPPDATA%`/`%APPDATA%`/`%USERPROFILE%`/`%SystemRoot%`/`%TEMP%` 占位符，mode 支持 contents/file/keep_latest/cef_cache，risk 分 safe/moderate，可选 `min_age_days` 字段=contents 清理时跳过 mtime 更新的文件，用户 Temp 已配 1 天防误删活跃文件）。
 
 **别忘了 D 盘**：`D:\Program Files` 和 `D:\Program Files (x86)` 也可能有软件安装。夸克浏览器、美图、腾讯会议等常装到 D 盘，旧版本残留同样可清（Quark 双版本各占 1.3GB，只保留最新版）。
 
@@ -311,6 +326,7 @@ prompt:   执行 jiasu 技能每日自动清理（免 UAC 模式）：
 ```
 
 **cron 无人值守注意**：
+- **硬红线（最高优先级）**：cron 里只清可再生纯缓存（daily_clean_no_uac.py 已内置红线）——永不卸载/更新软件、不删版本目录/已安装包、不碰微信/QQ File+msg、不做服务/启动项/注册表修改
 - 只跑免 UAC 部分；管理员操作依赖一次性配置（`ConsentPromptBehaviorAdmin=0`，见"免 UAC 提权"），未配置时全部跳过
 - `daily_clean_no_uac.py` 在技能目录 `scripts/` 下，cron prompt 里用绝对路径引用（如 `C:\Users\<user>\AppData\Local\hermes\skills\devops\jiasu\scripts\daily_clean_no_uac.py`）；`python xxx.py --rules` 可单独验证规则库清理
 - 被进程锁定的文件（Python 缓存、mcp-stderr.log）跳过即可，不要强删（见陷阱 #7）
@@ -351,7 +367,7 @@ rm -rf "$LOCALAPPDATA/JianyingPro/User Data/Cache"/*
 #   recognize    — 语音识别缓存（最大，常 20-30GB）
 #   audioWave    — 音频波形缓存
 #   AITextTemplate / effect — AI/特效缓存
-# 旧版本 App：Apps/ 下保留版本号最高的一个，删其余（每个 0.4-2GB）
+# 旧版本 App：Apps/ 下是软件本体（硬红线不删）——只报告旧版本占用，建议用户手动卸载
 ```
 
 **关键红线：`User Data\Cache` 是缓存可删；`User Data\Projects`（草稿工程）绝不能删！**
@@ -472,9 +488,11 @@ rm -rf "$LOCALAPPDATA/Tencent/QQPCMgr/cef_cache_qmaiservice64"/*
 ```
 **注意**：不要删 `$APPDATA/Tencent/QQPCMgr/SysOpt.ini`、`sysdeepopt.ini`（启动加速策略配置，删了加速功能失效）。
 
-## 开机加速四件套（腾讯管家式，新增）
+## 开机加速四件套（腾讯管家式，新增——可选菜单，须用户逐项批准）
 
 腾讯管家开机加速 = 延迟启动 + 服务禁用 + DNS 优化 + 内存整理。以下是同等效果的手动/脚本化实现。
+
+> ⚠ 硬红线第 3 条：以下全部是**改软件/系统运行状态**的操作（延迟启动、删启动项、服务降级），影响第三方软件行为——**默认一律不做**，只在用户明确要求"开机加速"并逐项批准后执行；执行前先 `backup_revert.py backup` 建快照，保留回滚能力。服务只设 manual 不设 disabled。
 
 ### 1. 启动项清单（先查后改）
 
@@ -535,9 +553,10 @@ Get-Process | Where-Object {$_.WorkingSet64 -gt 500MB} | ForEach-Object { [M]::E
 ```
 默认跳过此项，先做前两项。
 
-### 6. 服务微调清单（optimizerDuck 同款，200+ 服务精选安全项）
+### 6. 服务微调清单（optimizerDuck 同款，200+ 服务精选安全项——须用户批准后执行）
 
-以下服务按"更新类/云同步类/遥测类"设 `manual`（要用时按需拉起），**不动杀毒/驱动/核心服务**：
+以下服务按"更新类/云同步类/遥测类"设 `manual`（要用时按需拉起），**不动杀毒/驱动/核心服务**。
+（硬红线：这些服务属于第三方软件的更新/云功能，必须用户逐项批准后才执行，且只设 manual。）
 
 ```powershell
 # 更新/遥测类（安全设 manual）
@@ -614,11 +633,11 @@ DISM /online /Cleanup-Image /StartComponentCleanup /ResetBase   # 需管理员
 powershell -File scripts/audit_unused_software.ps1 -JsonOut   # 输出 JSON 防乱码，再用 Python 分析
 ```
 **注意**：文件修改时间 ≠ 实际使用时间（自动更新会刷新 mtime）。Edge、VS Installer、FFmpeg 可能被误归类，需人工判断。
-常见可卸载：TIM、360压缩、悟空(Wukong)、VS Installer。无卸载程序的软件（如悟空）需手动清注册表+删文件夹（见下）。
+**硬红线**：审计结果**只报告不卸载**——卸载属于删软件，仅在用户看完报告后明确点名时才执行（见下方 winget 卸载）。
 
-**接 winget 批量卸载**（winutil Install tab 同款，2026-08-24 新增，默认 dry-run）：
+**接 winget 批量卸载**（winutil Install tab 同款，默认 dry-run——硬红线：卸载属于删软件，**只在用户明确点名要卸载某软件时**按名单执行，永不批量/自动）：
 ```bash
-python scripts/uninstall_by_audit.py                 # 列出闲置>60天的软件
+python scripts/uninstall_by_audit.py                 # 列出闲置>60天的软件（只报告）
 python scripts/uninstall_by_audit.py --idle 90       # 自定义阈值
 python scripts/uninstall_by_audit.py --apply "TIM"   # 卸载（注册表 UninstallString 优先，GUI 卸载器会弹窗）
 python scripts/uninstall_by_audit.py --apply "XXX" --winget  # 强制走 winget --silent
@@ -629,13 +648,14 @@ python scripts/uninstall_by_audit.py --apply "XXX" --winget  # 强制走 winget 
 
 | 软件 | 路径模式 | 可删（缓存） | 不可删（用户数据/核心） |
 |------|----------|-------------|----------------------|
-| 剪映 | `JianyingPro/User Data/Cache/*` | recognize, audioWave, AITextTemplate, effect, GeckoCpp, image, fontImage 等全部子目录 | `User Data/Projects`（草稿工程） |
-| 美图秀秀 | `MeituApp/XiuXiu/<version>` | 只保留最新版本号目录，删其余 | 最新版本目录 |
-| WPS | `Kingsoft/WPS Office/<version>` | 只保留最新版，删其余 | 最新版本目录 |
+| 剪映 | `JianyingPro/User Data/Cache/*` | recognize, audioWave, AITextTemplate, effect, GeckoCpp, image, fontImage 等全部子目录 | `User Data/Projects`（草稿工程）；`Apps/` 全部版本目录=软件本体红线不删，只报告 |
+| 美图秀秀 | `MeituApp/XiuXiu/<version>` | ⚠ 版本目录=软件本体，红线不删，只报告 | 全部版本目录 |
+| WPS | `Kingsoft/WPS Office/<version>` | ⚠ 版本目录=软件本体，红线不删，只报告 | 全部版本目录 |
 | WPS | `kingsoft/wps/addons/pool` | 全部（模板池，按需重下载） | `addons/data`（用户数据） |
 | 微信 | `Tencent/xwechat/radium/users` | 全部（小程序用户缓存） | — |
 | 微信 | `Tencent/xwechat/radium/web` | 全部（WebView 缓存） | — |
 | 微信 | `Tencent/xwechat/XPlugin/Plugins` | — | RadiumWMPF, WeChatPlayer 等（核心插件） |
+| 微信/QQ | `File/`、`msg/` 任意子树 | — | **聊天接收文件+聊天记录（红线，永不删）** |
 | 腾讯会议 | `Tencent/WeMeet/Global/Data/DynamicResource*` | 全部（按需重下载） | Global/Database（用户数据库） |
 | 腾讯会议 | `Tencent/WeMeet/Global/Data/AudioModel` | 全部 | — |
 | 腾讯会议 | `Tencent/WeMeet/Global/Data/AvatarModel` | 全部 | — |
@@ -644,9 +664,9 @@ python scripts/uninstall_by_audit.py --apply "XXX" --winget  # 强制走 winget 
 | 360安全 | `secoresdk/360se6`（Roaming） | 全部（0.3-0.5GB，SDK缓存） | — |
 | ima.copilot | `ima.copilot/User Data/reshub` | 全部 | — |
 | ima.copilot | `ima.copilot/User Data/component_crx_cache` | 全部 | — |
-| npm | `npm/node_modules`（Roaming 下） | 全部（全局包，可重装） | — |
+| npm | `npm/node_modules`（Roaming 下） | ⚠ 全局包=软件本体，红线不自动删 | — |
 | TRAE | `TRAE SOLO CN/ModularData/ai-agent/vm` | — | VM 镜像（核心功能） |
-| ms-playwright | `ms-playwright/<browser>-<version>` | 每种浏览器只保留版本号最大的，删其余。**坑**：正则分组必须把 `chromium` 与 `chromium_headless_shell` 分开（前缀匹配 `^chromium[_-]` 会把两者混组，导致误删最新完整版 chromium 只留 headless_shell），按 `chromium`/`chromium_headless_shell`/`firefox`/`webkit`/`ffmpeg` 独立分组后再各自去旧 | 最新版本 |
+| ms-playwright | `ms-playwright/<browser>-<version>` | ⚠ 浏览器版本目录=软件本体，红线不删，只报告旧版本 | 全部版本目录 |
 | QQ电脑管家 | `Tencent/QQPCMgr/radiumv3`（Roaming） | 全部（0.3-1GB 缓存） | `SysOpt.ini`/`sysdeepopt.ini`（加速策略） |
 | QQ电脑管家 | `Tencent/QQPCMgr/cef_cache_*`（Local） | 全部（CEF浏览器缓存） | — |
 | GreenCore7z | `GreenCore7z`（Roaming） | 全部（压缩软件缓存，0.3-0.5GB） | — |
@@ -798,19 +818,19 @@ Start-Process cmd -Verb RunAs -ArgumentList '/c rd /s /q "C:\Program Files\XXXX"
 
 ## 参考脚本
 
-- `scripts/_common.py` — 公共工具（dir_size/free_gb/JUNCTION_NAMES/rules.json 匹配/提权执行），各脚本共用，勿重复实现
-- `scripts/health_check.py` — 只读全面体检（磁盘/安全/启动项/服务/还原/缓存），中文报告 + [WARN] 异常标出，cron 与手动复用
-- `scripts/defender_scan.py` — 安全卫士封装：Defender 状态/签名更新/快速查杀/全盘查杀/隔离区/恢复向导（提权模式，本机免 UAC 静默）
-- `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：**默认 = rules.json 规则库（safe/contents/file/cef_cache 项）+ 内置复杂逻辑**（剪映 Projects 检查/浏览器 profile 展开/微信QQ 递归/Hermes/Codex 特殊项），测量→安全删除→逐项报告释放 GB；`--rules` 只跑规则库（调试用）；新增缓存规则只改 rules.json 自动生效。**2026-08-29 实战修复**：`c_free_before_gb` 改为脚本开头测量（原版结尾测导致 before≈after 假象）+ 新增 `c_free_after_gb` 字段；回收站清空（SHEmptyRecycleBinW）计入结果但释放量记 -1 不并入 total_freed（重构时曾被弄丢）
-- `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction；`--rules` 附加规则库匹配
-- `scripts/rules.json` — 清理规则库（Dism++ 式数据化，**单一事实源**）：40+ 条已知缓存规则，路径占位符/mode/risk 字段；`deep_scan.py --rules` 匹配、`health_check.py` 列出、`daily_clean_no_uac.py` 自动清理，新增软件只改此文件
-- `scripts/backup_revert.py` — 可逆性保障：修改前 reg export + 服务启动类型快照 + 生成 undo.ps1 一键回滚（revert/ 已 gitignore）
+- `scripts/_common.py` — 公共工具（dir_size/free_gb/is_reparse/decode_console/JUNCTION_NAMES/rules.json 匹配/提权执行），各脚本共用，勿重复实现。**is_reparse 是所有递归扫描/删除的 junction 防穿透开关**（os.path.islink 对 junction 返回 False，必须用它）；**decode_console 统一控制台解码**（本机 netsh/powershell 输出有 UTF-8 有 GBK，按单一编码解会炸，dns_tool 曾因此整体静默失效）；run_elevated_ps 用 done_marker 判断提权脚本真正完成（防"结果文件出现即成功"竞态），UAC 被拒返回 UAC_DECLINED
+- `scripts/health_check.py` — 只读全面体检（磁盘/安全/启动项/服务/还原/缓存），中文报告 + [WARN] 异常标出，cron 与手动复用；查询失败（如防火墙 cmdlet 不可用）归 INFO 不误报 WARN
+- `scripts/defender_scan.py` — 安全卫士封装：Defender 状态/签名更新/快速查杀/全盘查杀/隔离区/恢复向导（提权模式，本机免 UAC 静默；update/scan 带 [DONE] 完成标记，结果完整才算完成）
+- `scripts/daily_clean_no_uac.py` — 每日免 UAC 自动清理脚本（cron 复用）：**默认 = rules.json 规则库（safe/contents/file/cef_cache 项，keep_latest/moderate 一律跳过）+ 内置复杂逻辑**（剪映 Projects 检查/浏览器 profile 展开/微信QQ Image+Video 递归（File+msg 红线跳过）/Hermes/Codex 特殊项），测量→安全删除→逐项报告释放 GB（JSON 含 c_free_before/after + total_skipped）；回收站清空（SHEmptyRecycleBinW）计入结果但释放量记 -1 不并入 total_freed（2026-08-29 实战修复，重构时曾被弄丢）；旧版本 App 只报告不删；`--rules` 只跑规则库（调试用）；新增缓存规则只改 rules.json 自动生效；**可被安全 import**（逻辑全在 main() 里，`__main__` 守卫）；rm_contents 根路径本身是 junction 时拒绝进入（os.scandir(junction) 会穿透删除目标真身）
+- `scripts/deep_scan.py` — 顶层目录广扫，找出真实占用大户（剪映/美图等），跳过 junction/reparse；`--rules` 附加规则库匹配
+- `scripts/rules.json` — 清理规则库（Dism++ 式数据化，**单一事实源**）：40+ 条已知缓存规则，路径占位符/mode/risk/可选 min_age_days 字段；`deep_scan.py --rules` 匹配、`health_check.py` 列出、`daily_clean_no_uac.py` 自动清理，新增软件只改此文件
+- `scripts/backup_revert.py` — 可逆性保障：修改前 reg export + 服务启动类型快照 + 生成 undo.ps1 一键回滚（revert/ 已 gitignore）；**全失败自动退出（exit 2）不建空快照**；undo.ps1 写 UTF-8 with BOM（防 PowerShell 5.1 中文乱码）；reg/sc 输出走 decode_console 自适应解码
 - `scripts/system_repair.ps1` — 系统修复（winutil Fixes 同款）：SFC/DISM RestoreHealth/WU 重置/网络重置，分步可选
 - `scripts/find_locked_by.py` — 锁文件句柄查询（Restart Manager API），找出占用路径的进程 PID
-- `scripts/find_duplicates.py` — 重复文件扫描（dupeGuru 思路），三级过滤哈希，默认只列，--delete 需 --confirm
-- `scripts/dns_tool.py` — DNS 工具：备份/预设切换/延迟测试/恢复（hellzerg/optimizer 同款）
+- `scripts/find_duplicates.py` — 重复文件扫描（dupeGuru 思路），三级过滤哈希，默认只列，--delete 需 --confirm；os.walk 用 is_reparse 跳过 junction（防把链接目标文件重复计入"重复组"导致误删真身）；--move-to 用 shutil.move（跨卷回收区也能移）
+- `scripts/dns_tool.py` — DNS 工具：备份/预设切换/延迟测试/恢复（hellzerg/optimizer 同款）。网卡枚举主路径 = PowerShell Get-NetAdapter + Get-DnsClientServerAddress（结构化免本地化解析），netsh 文本解析仅作后备（曾因 GBK 解码 + InterfaceMetric 误匹配 + 中文引号三连坑整体失效）；切换/恢复后自动 flushdns；接口名含空格走 PowerShell 引号转义
 - `scripts/redirect_known_folders.ps1` — 用户文件夹重定向 D 盘（Sophia Known Folder 同款），可 -Undo 回滚
-- `scripts/uninstall_by_audit.py` — 审计结果接 winget 批量卸载（winutil 同款），默认 dry-run
+- `scripts/uninstall_by_audit.py` — 审计结果按名单卸载（winutil 同款），默认 dry-run；**--apply 子串匹配到多个应用时拒执行，要求加 --yes 确认**（防误卸）；msiexec 与 GUI 卸载器一律 Popen 不等待（防挂死调用方）；winget ID 解析只认"输出行以应用名开头"，杜绝表头/无关行被当 Id 误卸别的包
 - `scripts/find_installed_apps.py` — 查找软件安装位置（卸载前确认所有残留路径）
 - `scripts/audit_unused_software.ps1` — 软件使用审计（60天未用清单）
 - `references/pagefile_migrate.ps1` — pagefile 迁移到 D 盘（需管理员）

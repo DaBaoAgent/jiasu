@@ -19,6 +19,7 @@
 """
 import os
 import sys
+import shutil
 import hashlib
 import argparse
 from collections import defaultdict
@@ -51,17 +52,24 @@ def file_hash(path, full=False):
 def scan_dirs(roots, min_size):
     by_size = defaultdict(list)
     total = 0
-    for root in roots:
-        if not os.path.isdir(root):
-            print(f"跳过（不存在）: {root}")
+    for base in roots:
+        if not os.path.isdir(base):
+            print(f"跳过（不存在）: {base}")
             continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            # 跳过 junction 循环名
-            dirnames[:] = [d for d in dirnames if d not in _common.JUNCTION_NAMES]
+        for dirpath, dirnames, filenames in os.walk(base):
+            # 跳过 junction 循环名；⚠ 必须用 is_reparse 而非 os.path.islink——
+            # islink 对 junction 返回 False（只认 symlink），junction 目标会被
+            # 重复扫进来当"重复文件"，删错真身
+            dirnames[:] = [d for d in dirnames
+                           if d not in _common.JUNCTION_NAMES
+                           and not _common.is_reparse(os.path.join(dirpath, d))]
             for fn in filenames:
                 if os.path.splitext(fn)[1].lower() in SKIP_EXT:
                     continue
-                p = os.path.join(dirpath, fn)
+                fp = os.path.join(dirpath, fn)
+                if _common.is_reparse(fp):
+                    continue
+                p = fp
                 try:
                     sz = os.path.getsize(p)
                 except OSError:
@@ -119,6 +127,7 @@ def delete_dupes(groups, confirm, move_to=None):
     if move_to:
         os.makedirs(move_to, exist_ok=True)
     deleted = 0
+    failed = 0
     for g in groups:
         for f in g["files"][1:]:  # 保留第一个
             try:
@@ -129,15 +138,20 @@ def delete_dupes(groups, confirm, move_to=None):
                         stem, ext = os.path.splitext(os.path.basename(f))
                         dest = os.path.join(move_to, f"{stem}_{n}{ext}")
                         n += 1
-                    os.replace(f, dest)
+                    # 真移动而非 os.replace：回收区可能与源不在同一卷，
+                    # replace 跨卷会抛 OSError 导致 --move-to 实际什么都没移
+                    shutil.move(f, dest)
                 else:
-                    os.chmod(f, 0o777)
+                    os.chmod(f, 0o666)
                     os.unlink(f)
                 deleted += 1
                 print(f"  ✂ {f}")
             except OSError as e:
+                failed += 1
                 print(f"  ✗ {f}: {e}")
-    print(f"处理完成: {deleted} 个文件" + ("（移至回收区）" if move_to else "（已删除）"))
+    print(f"处理完成: {deleted} 个文件" +
+          (f"，失败 {failed} 个" if failed else "") +
+          ("（移至回收区）" if move_to else "（已删除）"))
 
 
 def main():
